@@ -14,6 +14,7 @@ const navItems = [
   { href: "/transfers", label: "Transfers" },
   { href: "/discounts", label: "Discounts" },
   { href: "/cogs", label: "COGS" },
+  { href: "/ai-insights", label: "AI Insights" },
   { href: "/settings", label: "Settings" },
 ];
 
