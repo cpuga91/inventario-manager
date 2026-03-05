@@ -4,6 +4,18 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 
+interface OpenAiSettingsState {
+  isEnabled: boolean;
+  model: string;
+  dailyHourLocal: number;
+  timezone: string;
+  maxSkus: number;
+  promptVersion: string;
+  keyStorageMode: "ENV_ONLY" | "DB_ENCRYPTED";
+  hasStoredKey: boolean;
+  apiKeyLast4: string | null;
+}
+
 export default function SettingsPage() {
   const router = useRouter();
   const [user, setUser] = useState<{ name?: string; email: string; role: string } | null>(null);
@@ -21,12 +33,33 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
+  // OpenAI settings state
+  const [aiSettings, setAiSettings] = useState<OpenAiSettingsState>({
+    isEnabled: false,
+    model: "gpt-4o-mini",
+    dailyHourLocal: 7,
+    timezone: "America/Santiago",
+    maxSkus: 150,
+    promptVersion: "v1.0",
+    keyStorageMode: "ENV_ONLY",
+    hasStoredKey: false,
+    apiKeyLast4: null,
+  });
+  const [encryptionAvailable, setEncryptionAvailable] = useState(false);
+  const [envKeyConfigured, setEnvKeyConfigured] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiMessage, setAiMessage] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [runningAi, setRunningAi] = useState(false);
+
   useEffect(() => {
     Promise.all([
       fetch("/api/auth/me").then((r) => r.json()),
       fetch("/api/settings").then((r) => r.json()),
+      fetch("/api/admin/openai-settings").then((r) => r.ok ? r.json() : null).catch(() => null),
     ])
-      .then(([auth, data]) => {
+      .then(([auth, data, aiData]) => {
         if (auth.error) { router.push("/login"); return; }
         setUser(auth.user);
         setTenant(auth.tenant);
@@ -40,6 +73,11 @@ export default function SettingsPage() {
             warehouseBufferQty: data.globalRule.warehouseBufferQty ?? 5,
             targetCoverDays: data.globalRule.targetCoverDays ?? 30,
           });
+        }
+        if (aiData?.settings) {
+          setAiSettings(aiData.settings);
+          setEncryptionAvailable(aiData.encryptionAvailable ?? false);
+          setEnvKeyConfigured(aiData.envKeyConfigured ?? false);
         }
       })
       .catch(() => router.push("/login"))
@@ -101,6 +139,96 @@ export default function SettingsPage() {
       }
     } catch {
       setMessage("Analytics run failed");
+    }
+  };
+
+  const handleAiSave = async () => {
+    setAiSaving(true);
+    setAiMessage("");
+    try {
+      const payload: Record<string, unknown> = {
+        isEnabled: aiSettings.isEnabled,
+        model: aiSettings.model,
+        dailyHourLocal: aiSettings.dailyHourLocal,
+        timezone: aiSettings.timezone,
+        maxSkus: aiSettings.maxSkus,
+        keyStorageMode: aiSettings.keyStorageMode,
+      };
+      if (apiKeyInput.trim()) {
+        payload.apiKey = apiKeyInput.trim();
+      }
+      const res = await fetch("/api/admin/openai-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAiSettings(data.settings);
+        setApiKeyInput("");
+        setAiMessage("OpenAI settings saved");
+      } else {
+        setAiMessage("Error: " + (data.error || data.details?.join(", ")));
+      }
+    } catch {
+      setAiMessage("Failed to save OpenAI settings");
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const handleRemoveKey = async () => {
+    setAiSaving(true);
+    setAiMessage("");
+    try {
+      const res = await fetch("/api/admin/openai-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ removeKey: true }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAiSettings(data.settings);
+        setAiMessage("Stored API key removed");
+      } else {
+        setAiMessage("Error: " + data.error);
+      }
+    } catch {
+      setAiMessage("Failed to remove key");
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setTesting(true);
+    setAiMessage("");
+    try {
+      const res = await fetch("/api/admin/openai-test", { method: "POST" });
+      const data = await res.json();
+      setAiMessage(data.success ? data.message : "Test failed: " + data.message);
+    } catch {
+      setAiMessage("Connection test failed");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleRunAiNow = async () => {
+    setRunningAi(true);
+    setAiMessage("Running AI analysis...");
+    try {
+      const res = await fetch("/api/admin/openai-run", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setAiMessage(`AI analysis complete: ${data.run.status}. View results in AI Insights.`);
+      } else {
+        setAiMessage("Error: " + data.error);
+      }
+    } catch {
+      setAiMessage("AI run failed");
+    } finally {
+      setRunningAi(false);
     }
   };
 
@@ -180,6 +308,199 @@ export default function SettingsPage() {
             </label>
           </div>
         </div>
+
+        {/* OpenAI Settings — ADMIN only */}
+        {user.role === "ADMIN" && (
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <h2 className="text-lg font-semibold mb-4">OpenAI Configuration</h2>
+
+            {aiMessage && (
+              <div className={`p-3 rounded text-sm mb-4 ${aiMessage.startsWith("Error") || aiMessage.includes("failed") || aiMessage.includes("Failed") ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>
+                {aiMessage}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Enable toggle */}
+              <div className="md:col-span-2">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <div
+                    className={`relative w-11 h-6 rounded-full transition-colors ${aiSettings.isEnabled ? "bg-emerald-500" : "bg-gray-300"}`}
+                    onClick={() => setAiSettings({ ...aiSettings, isEnabled: !aiSettings.isEnabled })}
+                  >
+                    <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${aiSettings.isEnabled ? "translate-x-5.5 left-[1.375rem]" : "left-0.5"}`} />
+                  </div>
+                  <span className="text-sm font-medium text-gray-700">Enable OpenAI Daily Insights</span>
+                </label>
+              </div>
+
+              {/* Model */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Model</label>
+                <select
+                  value={aiSettings.model}
+                  onChange={(e) => setAiSettings({ ...aiSettings, model: e.target.value })}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                >
+                  <option value="gpt-4o-mini">gpt-4o-mini</option>
+                  <option value="gpt-4o">gpt-4o</option>
+                  <option value="gpt-4-turbo">gpt-4-turbo</option>
+                  <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+                </select>
+              </div>
+
+              {/* Daily hour */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Daily Run Hour (0-23)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={aiSettings.dailyHourLocal}
+                  onChange={(e) => setAiSettings({ ...aiSettings, dailyHourLocal: parseInt(e.target.value) || 0 })}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                />
+              </div>
+
+              {/* Timezone */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
+                <input
+                  type="text"
+                  value={aiSettings.timezone}
+                  onChange={(e) => setAiSettings({ ...aiSettings, timezone: e.target.value })}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                  placeholder="America/Santiago"
+                />
+              </div>
+
+              {/* Max SKUs */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Max SKUs per Run</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={aiSettings.maxSkus}
+                  onChange={(e) => setAiSettings({ ...aiSettings, maxSkus: parseInt(e.target.value) || 150 })}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                />
+              </div>
+
+              {/* Prompt version (read-only) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Prompt Version</label>
+                <input
+                  type="text"
+                  value={aiSettings.promptVersion}
+                  readOnly
+                  className="w-full border rounded px-3 py-2 text-sm bg-gray-50 text-gray-500"
+                />
+              </div>
+            </div>
+
+            {/* API Key Management */}
+            <div className="mt-6 border-t pt-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">API Key Management</h3>
+
+              <div className="flex gap-4 mb-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="keyStorageMode"
+                    checked={aiSettings.keyStorageMode === "ENV_ONLY"}
+                    onChange={() => setAiSettings({ ...aiSettings, keyStorageMode: "ENV_ONLY" })}
+                    className="text-emerald-600"
+                  />
+                  <span className="text-sm text-gray-700">Manage key via Environment Variable</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="keyStorageMode"
+                    checked={aiSettings.keyStorageMode === "DB_ENCRYPTED"}
+                    onChange={() => setAiSettings({ ...aiSettings, keyStorageMode: "DB_ENCRYPTED" })}
+                    disabled={!encryptionAvailable}
+                    className="text-emerald-600"
+                  />
+                  <span className={`text-sm ${encryptionAvailable ? "text-gray-700" : "text-gray-400"}`}>
+                    Store key encrypted in app
+                    {!encryptionAvailable && " (set APP_ENCRYPTION_KEY first)"}
+                  </span>
+                </label>
+              </div>
+
+              {aiSettings.keyStorageMode === "ENV_ONLY" && (
+                <div className="bg-gray-50 p-3 rounded text-sm text-gray-600">
+                  Set <code className="bg-gray-200 px-1 rounded">OPENAI_API_KEY</code> in your Replit Secrets or <code className="bg-gray-200 px-1 rounded">.env</code> file.
+                  {envKeyConfigured && (
+                    <span className="ml-2 text-emerald-600 font-medium">Environment key is configured.</span>
+                  )}
+                  {!envKeyConfigured && (
+                    <span className="ml-2 text-amber-600 font-medium">No environment key detected.</span>
+                  )}
+                </div>
+              )}
+
+              {aiSettings.keyStorageMode === "DB_ENCRYPTED" && (
+                <div className="space-y-3">
+                  {aiSettings.hasStoredKey && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-emerald-600 font-medium">
+                        Key stored (last 4: {aiSettings.apiKeyLast4 || "****"})
+                      </span>
+                      <button
+                        onClick={handleRemoveKey}
+                        className="text-xs text-red-600 hover:text-red-800 underline"
+                        disabled={aiSaving}
+                      >
+                        Remove stored key
+                      </button>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">
+                      {aiSettings.hasStoredKey ? "Replace API Key" : "Paste API Key"}
+                    </label>
+                    <input
+                      type="password"
+                      value={apiKeyInput}
+                      onChange={(e) => setApiKeyInput(e.target.value)}
+                      placeholder="sk-..."
+                      className="w-full max-w-md border rounded px-3 py-2 text-sm"
+                      autoComplete="off"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Action buttons */}
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                onClick={handleAiSave}
+                disabled={aiSaving}
+                className="bg-emerald-600 text-white px-6 py-2 rounded font-medium hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {aiSaving ? "Saving..." : "Save OpenAI Settings"}
+              </button>
+              <button
+                onClick={handleTestConnection}
+                disabled={testing}
+                className="bg-indigo-600 text-white px-4 py-2 rounded text-sm hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {testing ? "Testing..." : "Test OpenAI Connection"}
+              </button>
+              <button
+                onClick={handleRunAiNow}
+                disabled={runningAi}
+                className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+              >
+                {runningAi ? "Running..." : "Run AI Analysis Now"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

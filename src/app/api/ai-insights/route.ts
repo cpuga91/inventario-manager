@@ -68,9 +68,12 @@ export async function POST() {
   try {
     const user = await requireAuth(["ADMIN"]);
 
-    if (!process.env.OPENAI_API_KEY) {
+    // Check if any API key is available (env or per-tenant encrypted)
+    const settings = await prisma.openAiSettings.findUnique({ where: { tenantId: user.tenantId } });
+    const hasKey = !!process.env.OPENAI_API_KEY || (settings?.keyStorageMode === "DB_ENCRYPTED" && !!settings?.encryptedApiKey);
+    if (!hasKey) {
       return NextResponse.json(
-        { error: "OPENAI_API_KEY is not configured. Add it to your .env file." },
+        { error: "No OpenAI API key configured. Set OPENAI_API_KEY in env or configure in Settings." },
         { status: 400 }
       );
     }

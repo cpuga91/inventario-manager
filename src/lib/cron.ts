@@ -67,27 +67,49 @@ export function initCron() {
     }
   });
 
-  // Daily AI analysis (default 07:00 America/Santiago)
-  const aiHour = process.env.OPENAI_DAILY_HOUR_LOCAL || "07:00";
-  const [h, m] = aiHour.split(":").map(Number);
-  const aiCronExpr = `${m || 0} ${h || 7} * * *`;
+  // Daily AI analysis — runs every hour, checks per-tenant settings for schedule
+  cron.schedule("0 * * * *", async () => {
+    try {
+      const { runDailyAiAnalysis } = await import("./ai-analysis");
+      const tenants = await prisma.tenant.findMany({
+        where: { wizardComplete: true },
+        include: { openAiSettings: true },
+      });
 
-  if (process.env.OPENAI_API_KEY) {
-    cron.schedule(aiCronExpr, async () => {
-      console.log("[cron] Starting daily AI analysis...");
-      try {
-        const { runDailyAiAnalysis } = await import("./ai-analysis");
-        const tenants = await prisma.tenant.findMany({ where: { wizardComplete: true } });
-        for (const tenant of tenants) {
+      for (const tenant of tenants) {
+        const settings = tenant.openAiSettings;
+
+        // Skip if tenant has settings and is disabled
+        if (settings && !settings.isEnabled) continue;
+
+        // If no settings exist, fall back to env-based behavior
+        if (!settings && !process.env.OPENAI_API_KEY) continue;
+
+        // Check if current hour matches the tenant's scheduled hour
+        const tz = settings?.timezone || "America/Santiago";
+        const targetHour = settings?.dailyHourLocal ?? 7;
+        let currentHour: number;
+        try {
+          currentHour = parseInt(new Date().toLocaleString("en-US", { timeZone: tz, hour: "2-digit", hour12: false }));
+        } catch {
+          currentHour = new Date().getUTCHours();
+        }
+
+        if (currentHour !== targetHour) continue;
+
+        console.log(`[cron] Starting AI analysis for ${tenant.name}...`);
+        try {
           const result = await runDailyAiAnalysis(tenant.id);
           console.log(`[cron] AI analysis for ${tenant.name}: ${result.status} (run ${result.runId})`);
+        } catch (err) {
+          console.error(`[cron] AI analysis error for ${tenant.name}:`, err);
         }
-      } catch (err) {
-        console.error("[cron] AI analysis error:", err);
       }
-    }, { timezone: "America/Santiago" });
-    console.log(`[cron] AI analysis scheduled at ${aiHour} America/Santiago`);
-  }
+    } catch (err) {
+      console.error("[cron] AI analysis scheduler error:", err);
+    }
+  });
+  console.log("[cron] AI analysis scheduler initialized (per-tenant settings)");
 
   console.log("[cron] Scheduled jobs initialized");
 }

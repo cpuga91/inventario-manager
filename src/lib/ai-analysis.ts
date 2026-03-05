@@ -10,6 +10,7 @@
  */
 import { prisma } from "./prisma";
 import { AiRunStatus, RecommendationType } from "@prisma/client";
+import { decryptSecret } from "./encryption";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -228,8 +229,8 @@ export function sanitizeSkuPayload(sku: Record<string, unknown>): AiPayloadSku {
 // Payload builder
 // ---------------------------------------------------------------------------
 
-export async function buildAiPayload(tenantId: string): Promise<AiPayload> {
-  const maxSkus = parseInt(process.env.OPENAI_MAX_SKUS || "") || DEFAULT_MAX_SKUS;
+export async function buildAiPayload(tenantId: string, overrideMaxSkus?: number): Promise<AiPayload> {
+  const maxSkus = overrideMaxSkus || parseInt(process.env.OPENAI_MAX_SKUS || "") || DEFAULT_MAX_SKUS;
 
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   if (!tenant) throw new Error("Tenant not found");
@@ -411,18 +412,41 @@ export function validateAiOutput(raw: unknown): { valid: boolean; errors: string
 // OpenAI API call + store
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve the OpenAI API key for a tenant.
+ * Priority: DB_ENCRYPTED stored key > OPENAI_API_KEY env var.
+ */
+async function resolveApiKeyForTenant(tenantId: string): Promise<string | null> {
+  const settings = await prisma.openAiSettings.findUnique({ where: { tenantId } });
+
+  if (settings?.keyStorageMode === "DB_ENCRYPTED" && settings.encryptedApiKey) {
+    try {
+      return decryptSecret(settings.encryptedApiKey);
+    } catch {
+      // Fallback to env if decryption fails
+    }
+  }
+
+  return process.env.OPENAI_API_KEY || null;
+}
+
 export async function runDailyAiAnalysis(tenantId: string): Promise<{ runId: string; status: AiRunStatus }> {
-  const apiKey = process.env.OPENAI_API_KEY;
+  // Load per-tenant settings
+  const settings = await prisma.openAiSettings.findUnique({ where: { tenantId } });
+
+  const apiKey = await resolveApiKeyForTenant(tenantId);
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is not configured");
   }
 
-  const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
+  const model = settings?.model || process.env.OPENAI_MODEL || DEFAULT_MODEL;
+  const maxSkus = settings?.maxSkus || parseInt(process.env.OPENAI_MAX_SKUS || "") || DEFAULT_MAX_SKUS;
+  const promptVersion = settings?.promptVersion || PROMPT_VERSION;
   const today = new Date().toISOString().split("T")[0];
   const runDate = new Date(today);
 
   // Build payload
-  const payload = await buildAiPayload(tenantId);
+  const payload = await buildAiPayload(tenantId, maxSkus);
 
   // Skip if no data to analyze
   if (payload.top_risk_skus.length === 0 && payload.summary_stats.total_skus === 0) {
@@ -432,7 +456,7 @@ export async function runDailyAiAnalysis(tenantId: string): Promise<{ runId: str
         runDate,
         status: AiRunStatus.SUCCESS,
         model,
-        promptVersion: PROMPT_VERSION,
+        promptVersion,
         inputSummaryJson: JSON.stringify({ skus: 0, note: "No data to analyze" }),
         outputJson: JSON.stringify({
           date: today,
@@ -488,7 +512,7 @@ export async function runDailyAiAnalysis(tenantId: string): Promise<{ runId: str
           runDate,
           status: AiRunStatus.FAILED,
           model,
-          promptVersion: PROMPT_VERSION,
+          promptVersion,
           inputSummaryJson: inputSummary,
           outputText: rawText,
           tokensIn,
@@ -508,7 +532,7 @@ export async function runDailyAiAnalysis(tenantId: string): Promise<{ runId: str
           runDate,
           status: AiRunStatus.FAILED,
           model,
-          promptVersion: PROMPT_VERSION,
+          promptVersion,
           inputSummaryJson: inputSummary,
           outputJson: JSON.stringify(parsed),
           outputText: rawText,
@@ -527,7 +551,7 @@ export async function runDailyAiAnalysis(tenantId: string): Promise<{ runId: str
         runDate,
         status: AiRunStatus.SUCCESS,
         model,
-        promptVersion: PROMPT_VERSION,
+        promptVersion,
         inputSummaryJson: inputSummary,
         outputJson: JSON.stringify(validation.data),
         tokensIn,
@@ -544,7 +568,7 @@ export async function runDailyAiAnalysis(tenantId: string): Promise<{ runId: str
         runDate,
         status: AiRunStatus.FAILED,
         model,
-        promptVersion: PROMPT_VERSION,
+        promptVersion,
         inputSummaryJson: inputSummary,
         errorMessage: `OpenAI API error: ${message}`,
       },
