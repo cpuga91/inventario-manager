@@ -20,7 +20,9 @@ export class ShopifyClient {
   private apiVersion = "2024-04";
 
   constructor(config: ShopifyConfig) {
-    this.shop = config.shop;
+    this.shop = config.shop
+      .replace(/^https?:\/\//, "")
+      .replace(/\/+$/, "");
     this.accessToken = config.accessToken;
   }
 
