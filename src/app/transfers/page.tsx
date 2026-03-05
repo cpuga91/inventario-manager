@@ -26,6 +26,9 @@ export default function TransfersPage() {
   const [filterLocation, setFilterLocation] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [useAiPriority, setUseAiPriority] = useState(false);
+  const [aiTransfers, setAiTransfers] = useState<Array<{ sku: string; variant_id: string; priority: number; qty: number }>>([]);
+  const [hasAiData, setHasAiData] = useState(false);
 
   const fetchData = useCallback(async () => {
     const params = new URLSearchParams();
@@ -43,6 +46,15 @@ export default function TransfersPage() {
     setTransfers(transferData.transfers || []);
     setLocations(transferData.locations || []);
     setLoading(false);
+
+    // Load AI insights for priority toggle
+    try {
+      const aiData = await fetch("/api/ai-insights").then((r) => r.json());
+      if (aiData.insights?.prioritized_transfers?.length > 0) {
+        setAiTransfers(aiData.insights.prioritized_transfers);
+        setHasAiData(true);
+      }
+    } catch { /* AI data is optional */ }
   }, [filterLocation, search, router]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -69,6 +81,20 @@ export default function TransfersPage() {
   const selectAll = () => {
     if (selectedIds.size === transfers.length) setSelectedIds(new Set());
     else setSelectedIds(new Set(transfers.map((t) => t.id)));
+  };
+
+  // Apply AI prioritization if toggled on
+  const displayTransfers = useAiPriority && hasAiData
+    ? [...transfers].sort((a, b) => {
+        const aiA = aiTransfers.find((ai) => ai.sku === a.sku);
+        const aiB = aiTransfers.find((ai) => ai.sku === b.sku);
+        return (aiB?.priority ?? 0) - (aiA?.priority ?? 0);
+      })
+    : transfers;
+
+  const getAiSuggestedQty = (sku: string): number | null => {
+    if (!useAiPriority || !hasAiData) return null;
+    return aiTransfers.find((ai) => ai.sku === sku)?.qty ?? null;
   };
 
   if (loading || !user || !tenant) {
@@ -117,6 +143,17 @@ export default function TransfersPage() {
             onChange={(e) => setSearch(e.target.value)}
             className="border rounded px-3 py-2 text-sm flex-1 max-w-md"
           />
+          {hasAiData && (
+            <label className="flex items-center space-x-2 text-sm">
+              <input
+                type="checkbox"
+                checked={useAiPriority}
+                onChange={(e) => setUseAiPriority(e.target.checked)}
+                className="rounded"
+              />
+              <span className="text-gray-700">AI prioritization</span>
+            </label>
+          )}
         </div>
 
         {/* Table */}
@@ -135,13 +172,14 @@ export default function TransfersPage() {
                 <th className="p-3">Avg Sales/d</th>
                 <th className="p-3">Cover (d)</th>
                 <th className="p-3">Transfer Qty</th>
+                {useAiPriority && <th className="p-3">AI Qty</th>}
                 <th className="p-3">Risk</th>
                 <th className="p-3">Capital</th>
                 <th className="p-3">Status</th>
               </tr>
             </thead>
             <tbody>
-              {transfers.map((t) => (
+              {displayTransfers.map((t) => (
                 <tr key={t.id} className="border-b hover:bg-gray-50">
                   <td className="p-3">
                     <input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSelect(t.id)} />
@@ -162,6 +200,11 @@ export default function TransfersPage() {
                     </span>
                   </td>
                   <td className="p-3 font-bold text-emerald-700">{t.transferQty}</td>
+                  {useAiPriority && (
+                    <td className="p-3 text-purple-700 font-medium">
+                      {getAiSuggestedQty(t.sku) !== null ? getAiSuggestedQty(t.sku) : "-"}
+                    </td>
+                  )}
                   <td className="p-3">
                     {t.stockoutRisk && <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs">STOCKOUT</span>}
                   </td>
@@ -179,7 +222,7 @@ export default function TransfersPage() {
                 </tr>
               ))}
               {transfers.length === 0 && (
-                <tr><td colSpan={12} className="p-6 text-center text-gray-500">No transfer recommendations</td></tr>
+                <tr><td colSpan={useAiPriority ? 13 : 12} className="p-6 text-center text-gray-500">No transfer recommendations</td></tr>
               )}
             </tbody>
           </table>
