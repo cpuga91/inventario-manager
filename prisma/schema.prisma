@@ -32,6 +32,7 @@ model Tenant {
   notifications   Notification[]
   syncCursors     SyncCursor[]
   aiRuns          AiRun[]
+  openAiSettings  OpenAiSettings?
 
   @@map("tenants")
 }
@@ -303,6 +304,31 @@ model SyncCursor {
 
   @@unique([tenantId, cursorType])
   @@map("sync_cursors")
+}
+
+enum KeyStorageMode {
+  ENV_ONLY
+  DB_ENCRYPTED
+}
+
+model OpenAiSettings {
+  id              String          @id @default(cuid())
+  tenantId        String          @unique @map("tenant_id")
+  isEnabled       Boolean         @default(false) @map("is_enabled")
+  model           String?
+  dailyHourLocal  Int             @default(7) @map("daily_hour_local")
+  timezone        String          @default("America/Santiago")
+  maxSkus         Int             @default(150) @map("max_skus")
+  promptVersion   String          @default("v1.0") @map("prompt_version")
+  keyStorageMode  KeyStorageMode  @default(ENV_ONLY) @map("key_storage_mode")
+  encryptedApiKey String?         @map("encrypted_api_key") @db.Text
+  apiKeyLast4     String?         @map("api_key_last4")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("openai_settings")
 }
 
 enum AiRunStatus {
