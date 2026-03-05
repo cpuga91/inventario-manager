@@ -31,6 +31,7 @@ model Tenant {
   alerts          Alert[]
   notifications   Notification[]
   syncCursors     SyncCursor[]
+  aiRuns          AiRun[]
 
   @@map("tenants")
 }
@@ -302,4 +303,31 @@ model SyncCursor {
 
   @@unique([tenantId, cursorType])
   @@map("sync_cursors")
+}
+
+enum AiRunStatus {
+  SUCCESS
+  FAILED
+}
+
+model AiRun {
+  id              String      @id @default(cuid())
+  tenantId        String      @map("tenant_id")
+  runDate         DateTime    @db.Date @map("run_date")
+  status          AiRunStatus
+  model           String
+  promptVersion   String      @map("prompt_version")
+  inputSummaryJson String     @map("input_summary_json") @db.Text
+  outputJson      String?     @map("output_json") @db.Text
+  outputText      String?     @map("output_text") @db.Text
+  tokensIn        Int?        @map("tokens_in")
+  tokensOut       Int?        @map("tokens_out")
+  errorMessage    String?     @map("error_message") @db.Text
+  reviewed        Boolean     @default(false)
+  createdAt       DateTime    @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, runDate])
+  @@map("ai_runs")
 }
