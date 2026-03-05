@@ -8,7 +8,6 @@ import { SyncService } from "./sync";
 import { runAnalytics } from "./analytics";
 import { generateAlertsFromRecommendations } from "./notifications";
 import { ShopifyClient } from "./shopify";
-import { runDailyAiAnalysis } from "./ai-analysis";
 
 let initialized = false;
 
@@ -77,6 +76,7 @@ export function initCron() {
     cron.schedule(aiCronExpr, async () => {
       console.log("[cron] Starting daily AI analysis...");
       try {
+        const { runDailyAiAnalysis } = await import("./ai-analysis");
         const tenants = await prisma.tenant.findMany({ where: { wizardComplete: true } });
         for (const tenant of tenants) {
           const result = await runDailyAiAnalysis(tenant.id);

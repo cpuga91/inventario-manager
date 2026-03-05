@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { runDailyAiAnalysis } from "@/lib/ai-analysis";
 
 /**
  * GET /api/ai-insights - Get latest AI run for the tenant
@@ -76,6 +75,7 @@ export async function POST() {
       );
     }
 
+    const { runDailyAiAnalysis } = await import("@/lib/ai-analysis");
     const result = await runDailyAiAnalysis(user.tenantId);
 
     // Fetch the full run to return
