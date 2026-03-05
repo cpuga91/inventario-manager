@@ -8,6 +8,7 @@ import { SyncService } from "./sync";
 import { runAnalytics } from "./analytics";
 import { generateAlertsFromRecommendations } from "./notifications";
 import { ShopifyClient } from "./shopify";
+import { runDailyAiAnalysis } from "./ai-analysis";
 
 let initialized = false;
 
@@ -66,6 +67,27 @@ export function initCron() {
       console.error("[cron] COGS refresh error:", err);
     }
   });
+
+  // Daily AI analysis (default 07:00 America/Santiago)
+  const aiHour = process.env.OPENAI_DAILY_HOUR_LOCAL || "07:00";
+  const [h, m] = aiHour.split(":").map(Number);
+  const aiCronExpr = `${m || 0} ${h || 7} * * *`;
+
+  if (process.env.OPENAI_API_KEY) {
+    cron.schedule(aiCronExpr, async () => {
+      console.log("[cron] Starting daily AI analysis...");
+      try {
+        const tenants = await prisma.tenant.findMany({ where: { wizardComplete: true } });
+        for (const tenant of tenants) {
+          const result = await runDailyAiAnalysis(tenant.id);
+          console.log(`[cron] AI analysis for ${tenant.name}: ${result.status} (run ${result.runId})`);
+        }
+      } catch (err) {
+        console.error("[cron] AI analysis error:", err);
+      }
+    }, { timezone: "America/Santiago" });
+    console.log(`[cron] AI analysis scheduled at ${aiHour} America/Santiago`);
+  }
 
   console.log("[cron] Scheduled jobs initialized");
 }
