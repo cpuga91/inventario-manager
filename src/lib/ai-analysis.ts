@@ -8,7 +8,6 @@
  * - Output validated against JSON schema before storing
  * - AI does NOT perform actions; human approval only
  */
-import OpenAI from "openai";
 import { prisma } from "./prisma";
 import { AiRunStatus, RecommendationType } from "@prisma/client";
 
@@ -458,6 +457,7 @@ export async function runDailyAiAnalysis(tenantId: string): Promise<{ runId: str
   let run;
 
   try {
+    const { default: OpenAI } = await import("openai");
     const openai = new OpenAI({ apiKey });
     const response = await openai.chat.completions.create({
       model,
