@@ -35,6 +35,7 @@ A Next.js 14 inventory replenishment dashboard for Shopify stores. Syncs Shopify
 
 ## Optional Environment Secrets
 
+- `OPENAI_API_KEY` — OpenAI API key for AI-powered inventory analysis
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` — Email notifications
 
 ## Replit Migration Notes
@@ -42,3 +43,5 @@ A Next.js 14 inventory replenishment dashboard for Shopify stores. Syncs Shopify
 - Port changed from default 3000 to 5000, bound to `0.0.0.0` for Replit proxy
 - Replit-managed PostgreSQL database connected via built-in `DATABASE_URL` secret
 - Prisma schema pushed and client generated on migration
+- OpenAI `require()` calls changed to `await import("openai")` for webpack compatibility
+- `openai` npm package added as dependency for AI analysis features

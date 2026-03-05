@@ -481,10 +481,7 @@ export async function runDailyAiAnalysis(tenantId: string): Promise<{ runId: str
   let run;
 
   try {
-    // Dynamic require to avoid webpack static resolution when openai isn't installed
-    const moduleName = "openai";
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const OpenAI = require(moduleName).default;
+    const OpenAI = (await import("openai")).default;
     const openai = new OpenAI({ apiKey });
     const response = await openai.chat.completions.create({
       model,

@@ -21,10 +21,8 @@ export async function POST() {
       );
     }
 
-    // Minimal OpenAI call
-    const moduleName = "openai";
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const OpenAI = require(moduleName).default;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const OpenAI = (await import("openai")).default;
     const openai = new OpenAI({ apiKey });
 
     const response = await openai.chat.completions.create({
