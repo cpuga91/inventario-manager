@@ -3,7 +3,7 @@
  * All queries use documented Shopify Admin API fields only.
  */
 
-interface ShopifyConfig {
+export interface ShopifyConfig {
   shop: string;
   accessToken: string;
 }
@@ -15,8 +15,8 @@ interface GraphQLResponse<T = unknown> {
 }
 
 export class ShopifyClient {
-  private shop: string;
-  private accessToken: string;
+  protected shop: string;
+  protected accessToken: string;
   private apiVersion = "2024-04";
 
   constructor(config: ShopifyConfig) {
@@ -31,18 +31,39 @@ export class ShopifyClient {
   }
 
   async query<T = unknown>(gql: string, variables: Record<string, unknown> = {}): Promise<T> {
+    if (!this.shop) {
+      throw new Error("SHOPIFY_SHOP is not configured. Set it in your .env file.");
+    }
+    if (!this.accessToken) {
+      throw new Error("SHOPIFY_ACCESS_TOKEN is not configured. Set it in your .env file.");
+    }
+
     let retries = 0;
     const maxRetries = 3;
 
     while (true) {
-      const res = await fetch(this.endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": this.accessToken,
-        },
-        body: JSON.stringify({ query: gql, variables }),
-      });
+      let res: Response;
+      try {
+        res = await fetch(this.endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": this.accessToken,
+          },
+          body: JSON.stringify({ query: gql, variables }),
+        });
+      } catch (fetchError: unknown) {
+        const msg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+        if (retries < maxRetries) {
+          retries++;
+          await new Promise((r) => setTimeout(r, 2000 * retries));
+          continue;
+        }
+        throw new Error(
+          `Cannot connect to Shopify (${this.shop}): ${msg}. ` +
+          `Verify SHOPIFY_SHOP and SHOPIFY_ACCESS_TOKEN are correct and that outbound HTTPS is allowed.`
+        );
+      }
 
       // Rate limit handling: 429 or throttled
       if (res.status === 429 && retries < maxRetries) {
@@ -346,11 +367,60 @@ export class ShopifyClient {
 }
 
 /**
- * Get a ShopifyClient from environment or explicit config
+ * Mock Shopify client for environments where outbound HTTPS is blocked.
+ * Activated by setting SHOPIFY_MOCK=true in .env.
+ */
+export class MockShopifyClient extends ShopifyClient {
+  constructor(config: ShopifyConfig) {
+    super(config);
+  }
+
+  override async query<T = unknown>(gql: string, _variables: Record<string, unknown> = {}): Promise<T> {
+    // Return mock data based on the query content
+    if (gql.includes("shop {")) {
+      return { shop: { name: `${this.shop} (mock)` } } as T;
+    }
+    if (gql.includes("locations(")) {
+      return {
+        locations: {
+          edges: [
+            { node: { id: "gid://shopify/Location/1", name: "Warehouse", isActive: true } },
+            { node: { id: "gid://shopify/Location/2", name: "Store 1", isActive: true } },
+            { node: { id: "gid://shopify/Location/3", name: "Online", isActive: true } },
+          ],
+        },
+      } as T;
+    }
+    if (gql.includes("productVariants(")) {
+      return { productVariants: { edges: [], pageInfo: { hasNextPage: false, endCursor: null } } } as T;
+    }
+    if (gql.includes("inventoryItems(")) {
+      return { inventoryItems: { edges: [], pageInfo: { hasNextPage: false, endCursor: null } } } as T;
+    }
+    if (gql.includes("orders(")) {
+      return { orders: { edges: [], pageInfo: { hasNextPage: false, endCursor: null } } } as T;
+    }
+    if (gql.includes("metafieldsSet")) {
+      return { metafieldsSet: { metafields: [{ id: "mock" }], userErrors: [] } } as T;
+    }
+    return {} as T;
+  }
+
+}
+
+/**
+ * Get a ShopifyClient from environment or explicit config.
+ * Returns a MockShopifyClient when SHOPIFY_MOCK=true.
  */
 export function getShopifyClient(shop?: string, token?: string): ShopifyClient {
-  return new ShopifyClient({
+  const config: ShopifyConfig = {
     shop: shop || process.env.SHOPIFY_SHOP || "",
     accessToken: token || process.env.SHOPIFY_ACCESS_TOKEN || "",
-  });
+  };
+
+  if (process.env.SHOPIFY_MOCK === "true") {
+    return new MockShopifyClient(config);
+  }
+
+  return new ShopifyClient(config);
 }
