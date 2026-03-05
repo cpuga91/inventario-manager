@@ -1,0 +1,305 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  shopDomain String  @unique @map("shop_domain")
+  accessToken String @map("access_token")
+  wizardStep Int     @default(0) @map("wizard_step")
+  wizardComplete Boolean @default(false) @map("wizard_complete")
+  configJson String? @map("config_json") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users           User[]
+  locations       TenantLocation[]
+  products        Product[]
+  variants        Variant[]
+  variantCosts    VariantCost[]
+  inventoryLevels InventoryLevel[]
+  orders          Order[]
+  dailySales      DailySale[]
+  replenishmentRules ReplenishmentRule[]
+  recommendations Recommendation[]
+  alerts          Alert[]
+  notifications   Notification[]
+  syncCursors     SyncCursor[]
+
+  @@map("tenants")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  STORE_VIEW
+}
+
+model User {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  email     String
+  password  String
+  name      String?
+  role      UserRole @default(STORE_VIEW)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+model TenantLocation {
+  id                String   @id @default(cuid())
+  tenantId          String   @map("tenant_id")
+  shopifyLocationId String?  @map("shopify_location_id")
+  name              String
+  isWarehouse       Boolean  @default(false) @map("is_warehouse")
+  isStore           Boolean  @default(false) @map("is_store")
+  isOnline          Boolean  @default(false) @map("is_online")
+  isVirtual         Boolean  @default(false) @map("is_virtual")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  inventoryLevels InventoryLevel[]
+  dailySales      DailySale[]
+  recommendations Recommendation[]
+
+  @@unique([tenantId, shopifyLocationId])
+  @@map("tenant_locations")
+}
+
+model Product {
+  id              String   @id @default(cuid())
+  tenantId        String   @map("tenant_id")
+  shopifyProductId String  @map("shopify_product_id")
+  title           String
+  vendor          String?
+  tags            String?  @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  variants Variant[]
+
+  @@unique([tenantId, shopifyProductId])
+  @@index([tenantId])
+  @@map("products")
+}
+
+model Variant {
+  id                String   @id @default(cuid())
+  tenantId          String   @map("tenant_id")
+  shopifyVariantId  String   @map("shopify_variant_id")
+  shopifyProductId  String   @map("shopify_product_id")
+  shopifyInventoryItemId String? @map("shopify_inventory_item_id")
+  sku               String?
+  title             String
+  price             Float    @default(0)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product         Product          @relation(fields: [tenantId, shopifyProductId], references: [tenantId, shopifyProductId])
+  costs           VariantCost[]
+  inventoryLevels InventoryLevel[]
+  orderLines      OrderLine[]
+  dailySales      DailySale[]
+  recommendations Recommendation[]
+
+  @@unique([tenantId, shopifyVariantId])
+  @@index([tenantId, sku])
+  @@map("variants")
+}
+
+model VariantCost {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  variantId String   @map("variant_id")
+  sku       String?
+  cogsValue Float?   @map("cogs_value")
+  source    String   @default("metafield")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  variant Variant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, variantId])
+  @@index([tenantId, sku])
+  @@map("variant_costs")
+}
+
+model InventoryLevel {
+  id               String   @id @default(cuid())
+  tenantId         String   @map("tenant_id")
+  variantId        String   @map("variant_id")
+  tenantLocationId String   @map("tenant_location_id")
+  onHand           Int      @default(0) @map("on_hand")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  variant  Variant        @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  location TenantLocation @relation(fields: [tenantLocationId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, variantId, tenantLocationId])
+  @@index([tenantId, tenantLocationId])
+  @@map("inventory_levels")
+}
+
+model Order {
+  id              String   @id @default(cuid())
+  tenantId        String   @map("tenant_id")
+  shopifyOrderId  String   @map("shopify_order_id")
+  orderName       String?  @map("order_name")
+  createdAt       DateTime @map("created_at")
+  totalPrice      Float    @default(0) @map("total_price")
+  channel         String?
+  shopifyLocationId String? @map("shopify_location_id")
+
+  tenant Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lines  OrderLine[]
+
+  @@unique([tenantId, shopifyOrderId])
+  @@index([tenantId, createdAt])
+  @@map("orders")
+}
+
+model OrderLine {
+  id              String @id @default(cuid())
+  orderId         String @map("order_id")
+  variantId       String? @map("variant_id")
+  sku             String?
+  quantity        Int    @default(0)
+  unitPrice       Float  @default(0) @map("unit_price")
+  totalDiscount   Float  @default(0) @map("total_discount")
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant Variant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("order_lines")
+}
+
+model DailySale {
+  id               String   @id @default(cuid())
+  tenantId         String   @map("tenant_id")
+  date             DateTime @db.Date
+  variantId        String   @map("variant_id")
+  tenantLocationId String   @map("tenant_location_id")
+  qty              Int      @default(0)
+  grossSales       Float    @default(0) @map("gross_sales")
+  netSales         Float    @default(0) @map("net_sales")
+
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  variant  Variant        @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  location TenantLocation @relation(fields: [tenantLocationId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date, variantId, tenantLocationId])
+  @@index([tenantId, variantId])
+  @@index([tenantId, date])
+  @@map("daily_sales")
+}
+
+model ReplenishmentRule {
+  id               String   @id @default(cuid())
+  tenantId         String   @map("tenant_id")
+  variantId        String?  @map("variant_id")
+  tenantLocationId String?  @map("tenant_location_id")
+  isGlobal         Boolean  @default(true) @map("is_global")
+  leadTimeDays     Int      @default(3) @map("lead_time_days")
+  safetyDays       Int      @default(2) @map("safety_days")
+  reviewCycleDays  Int      @default(7) @map("review_cycle_days")
+  overstockThresholdDays Int @default(90) @map("overstock_threshold_days")
+  deadStockDays    Int      @default(180) @map("dead_stock_days")
+  slowMoverThresholdQty Float @default(0.1) @map("slow_mover_threshold_qty")
+  warehouseBufferQty Int    @default(5) @map("warehouse_buffer_qty")
+  targetCoverDays  Int      @default(30) @map("target_cover_days")
+  minQty           Int?     @map("min_qty")
+  maxQty           Int?     @map("max_qty")
+  excludeDiscount  Boolean  @default(false) @map("exclude_discount")
+  excludeTransfer  Boolean  @default(false) @map("exclude_transfer")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, variantId, tenantLocationId])
+  @@map("replenishment_rules")
+}
+
+enum RecommendationType {
+  TRANSFER
+  DISCOUNT
+  REORDER_EXTERNAL_FLAG
+}
+
+model Recommendation {
+  id               String   @id @default(cuid())
+  tenantId         String   @map("tenant_id")
+  type             RecommendationType
+  variantId        String   @map("variant_id")
+  tenantLocationId String?  @map("tenant_location_id")
+  payload          String   @db.Text
+  priority         Float    @default(0)
+  status           String   @default("pending")
+  reviewedAt       DateTime? @map("reviewed_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  variant  Variant         @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  location TenantLocation? @relation(fields: [tenantLocationId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, type, status])
+  @@index([tenantId, variantId])
+  @@map("recommendations")
+}
+
+model Alert {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  type      String
+  message   String   @db.Text
+  severity  String   @default("info")
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, read])
+  @@map("alerts")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  channel   String   @default("in_app")
+  subject   String
+  body      String   @db.Text
+  sentAt    DateTime? @map("sent_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("notifications")
+}
+
+model SyncCursor {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  cursorType String  @map("cursor_type")
+  cursorValue String @map("cursor_value")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, cursorType])
+  @@map("sync_cursors")
+}
