@@ -1,8 +1,19 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import Nav from "@/components/Nav";
+import Link from "next/link";
+import AppShell from "@/components/AppShell";
+import PageHeader from "@/components/PageHeader";
+import KpiCard from "@/components/KpiCard";
+import StatusChip from "@/components/StatusChip";
+import EmptyState from "@/components/EmptyState";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertTriangle, TrendingDown, PackageX, Warehouse,
+  ArrowRightLeft, Tag, ExternalLink, Clock,
+} from "lucide-react";
 
 interface DashboardData {
   stockoutRisks: Array<{
@@ -21,190 +32,210 @@ interface DashboardData {
   alerts: Array<{ id: string; type: string; message: string; severity: string; read: boolean; createdAt: string }>;
 }
 
-export default function DashboardPage() {
-  const router = useRouter();
-  const [user, setUser] = useState<{ name?: string; email: string; role: string } | null>(null);
-  const [tenant, setTenant] = useState<{ name: string } | null>(null);
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <Skeleton className="h-8 w-48" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-24 rounded-lg" />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Skeleton className="h-80 rounded-lg" />
+        <Skeleton className="h-80 rounded-lg" />
+      </div>
+    </div>
+  );
+}
+
+function DashboardContent() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/auth/me").then((r) => r.json()),
-      fetch("/api/dashboard").then((r) => r.json()),
-    ])
-      .then(([auth, dashboard]) => {
-        if (auth.error) { router.push("/login"); return; }
-        setUser(auth.user);
-        setTenant(auth.tenant);
-        setData(dashboard);
-      })
-      .catch(() => router.push("/login"))
+    fetch("/api/dashboard")
+      .then((r) => r.json())
+      .then(setData)
+      .catch(() => {})
       .finally(() => setLoading(false));
-  }, [router]);
+  }, []);
 
-  if (loading || !user || !tenant || !data) {
-    return <div className="flex items-center justify-center min-h-screen text-gray-500">Loading...</div>;
-  }
+  if (loading) return <DashboardSkeleton />;
+  if (!data) return <EmptyState title="No data available" description="Run the setup wizard to sync your Shopify data." />;
+
+  const stockoutCount = data.stockoutRisks.length;
+  const overstockCount = data.overstockRisks.length;
+  const deadStockCount = data.overstockRisks.filter((r) => r.discountBucket >= 30).length;
+  const reorderCount = data.reorderFlags.length;
+  const warehouseOk = reorderCount === 0;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Nav user={user} tenant={tenant} />
-      <div className="max-w-7xl mx-auto p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Dashboard</h1>
+    <div className="space-y-6">
+      <PageHeader title="Overview" subtitle="Inventory health at a glance">
+        <Button variant="outline" size="sm" asChild>
+          <Link href="/transfers">View all transfers</Link>
+        </Button>
+      </PageHeader>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white rounded-lg shadow-sm p-4">
-            <div className="text-sm text-gray-500">Variants</div>
-            <div className="text-2xl font-bold">{data.summary.variantCount}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm p-4">
-            <div className="text-sm text-gray-500">Orders Synced</div>
-            <div className="text-2xl font-bold">{data.summary.orderCount}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm p-4">
-            <div className="text-sm text-gray-500">Warehouse On-Hand</div>
-            <div className="text-2xl font-bold">{data.warehouseHealth?.totalOnHand ?? "N/A"}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm p-4">
-            <div className="text-sm text-gray-500">Reorder Flags</div>
-            <div className="text-2xl font-bold text-red-600">{data.warehouseHealth?.reorderFlags ?? 0}</div>
-          </div>
-        </div>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard title="Stockout Risks" value={stockoutCount}
+          subtitle={stockoutCount > 0 ? "Need transfers" : "All clear"}
+          icon={<AlertTriangle className="h-4 w-4" />}
+          variant={stockoutCount > 0 ? "danger" : "success"} />
+        <KpiCard title="Overstock Items" value={overstockCount}
+          subtitle={overstockCount > 0 ? "Review discounts" : "All clear"}
+          icon={<TrendingDown className="h-4 w-4" />}
+          variant={overstockCount > 0 ? "warning" : "success"} />
+        <KpiCard title="Dead Stock" value={deadStockCount}
+          subtitle={deadStockCount > 0 ? "No recent sales" : "All clear"}
+          icon={<PackageX className="h-4 w-4" />}
+          variant={deadStockCount > 0 ? "danger" : "success"} />
+        <KpiCard title="Warehouse Status" value={warehouseOk ? "Healthy" : `${reorderCount} low`}
+          subtitle={`${data.warehouseHealth?.totalOnHand ?? 0} units on hand`}
+          icon={<Warehouse className="h-4 w-4" />}
+          variant={warehouseOk ? "success" : "warning"} />
+      </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Top Stockout Risks */}
-          <div className="bg-white rounded-lg shadow-sm p-4">
-            <h2 className="text-lg font-semibold mb-3 text-red-700">Top Stockout Risks</h2>
+      {/* Urgent Actions */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <ArrowRightLeft className="h-4 w-4 text-primary" />
+                Urgent Transfers
+              </CardTitle>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/transfers" className="text-xs">View all <ExternalLink className="h-3 w-3 ml-1" /></Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
             {data.stockoutRisks.length === 0 ? (
-              <p className="text-gray-500 text-sm">No stockout risks detected</p>
+              <EmptyState title="No urgent transfers" description="All destinations have sufficient cover." />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 border-b">
-                      <th className="pb-2">SKU</th>
-                      <th className="pb-2">Location</th>
-                      <th className="pb-2">Cover</th>
-                      <th className="pb-2">Transfer</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.stockoutRisks.slice(0, 8).map((r) => (
-                      <tr key={r.id} className="border-b last:border-0">
-                        <td className="py-2 font-medium">{r.sku || r.title}</td>
-                        <td className="py-2">{r.destinationName}</td>
-                        <td className="py-2">
-                          <span className={`px-2 py-0.5 rounded text-xs ${r.daysOfCover < 5 ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"}`}>
-                            {r.daysOfCover?.toFixed(0)}d
-                          </span>
-                        </td>
-                        <td className="py-2 font-medium">{r.transferQty}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Top Overstock / Dead Stock */}
-          <div className="bg-white rounded-lg shadow-sm p-4">
-            <h2 className="text-lg font-semibold mb-3 text-amber-700">Overstock / Dead Stock</h2>
-            {data.overstockRisks.length === 0 ? (
-              <p className="text-gray-500 text-sm">No overstock risks detected</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 border-b">
-                      <th className="pb-2">SKU</th>
-                      <th className="pb-2">Location</th>
-                      <th className="pb-2">Cover</th>
-                      <th className="pb-2">Capital</th>
-                      <th className="pb-2">Discount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.overstockRisks.slice(0, 8).map((r) => (
-                      <tr key={r.id} className="border-b last:border-0">
-                        <td className="py-2 font-medium">{r.sku || r.title}</td>
-                        <td className="py-2">{r.locationName}</td>
-                        <td className="py-2">{r.daysOfCover?.toFixed(0)}d</td>
-                        <td className="py-2">{r.capitalTied !== null ? `$${r.capitalTied.toFixed(0)}` : "N/A"}</td>
-                        <td className="py-2">
-                          <span className="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700">
-                            {r.discountBucket}%
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Warehouse Reorder Flags */}
-          <div className="bg-white rounded-lg shadow-sm p-4">
-            <h2 className="text-lg font-semibold mb-3 text-blue-700">Warehouse Reorder Needed</h2>
-            {data.reorderFlags.length === 0 ? (
-              <p className="text-gray-500 text-sm">Warehouse stock is healthy</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 border-b">
-                      <th className="pb-2">SKU</th>
-                      <th className="pb-2">On-Hand</th>
-                      <th className="pb-2">Cover Days</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.reorderFlags.map((r) => (
-                      <tr key={r.id} className="border-b last:border-0">
-                        <td className="py-2 font-medium">{r.sku || r.title}</td>
-                        <td className="py-2">{r.warehouseOnHand}</td>
-                        <td className="py-2">
-                          <span className="px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">
-                            {r.warehouseDaysOfCover?.toFixed(0)}d
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Recent Alerts */}
-          <div className="bg-white rounded-lg shadow-sm p-4">
-            <h2 className="text-lg font-semibold mb-3">Recent Alerts</h2>
-            {data.alerts.length === 0 ? (
-              <p className="text-gray-500 text-sm">No alerts</p>
-            ) : (
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {data.alerts.slice(0, 10).map((a) => (
-                  <div
-                    key={a.id}
-                    className={`p-2 rounded text-sm ${
-                      a.severity === "critical"
-                        ? "bg-red-50 text-red-800"
-                        : a.severity === "warning"
-                        ? "bg-yellow-50 text-yellow-800"
-                        : "bg-gray-50 text-gray-600"
-                    }`}
-                  >
-                    {a.message}
+              <div className="divide-y">
+                {data.stockoutRisks.slice(0, 5).map((r) => (
+                  <div key={r.id} className="flex items-center justify-between py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{r.sku || r.title}</p>
+                      <p className="text-xs text-muted-foreground">{r.destinationName}</p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 ml-3">
+                      <StatusChip variant={r.daysOfCover < 5 ? "critical" : "warning"}>
+                        {r.daysOfCover?.toFixed(0)}d cover
+                      </StatusChip>
+                      <span className="text-sm font-semibold text-primary w-12 text-right">+{r.transferQty}</span>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Tag className="h-4 w-4 text-amber-600" />
+                Discount Candidates
+              </CardTitle>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/discounts" className="text-xs">View all <ExternalLink className="h-3 w-3 ml-1" /></Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {data.overstockRisks.length === 0 ? (
+              <EmptyState title="No discount candidates" description="No overstock or dead stock items detected." />
+            ) : (
+              <div className="divide-y">
+                {data.overstockRisks.slice(0, 5).map((r) => (
+                  <div key={r.id} className="flex items-center justify-between py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{r.sku || r.title}</p>
+                      <p className="text-xs text-muted-foreground">{r.locationName}</p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 ml-3">
+                      <span className="text-xs text-muted-foreground">
+                        {r.capitalTied !== null ? `$${r.capitalTied.toFixed(0)}` : ""}
+                      </span>
+                      <StatusChip variant={r.discountBucket >= 30 ? "critical" : "warning"}>
+                        {r.discountBucket}% off
+                      </StatusChip>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Warehouse Reorder + Alerts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Warehouse className="h-4 w-4 text-blue-600" />
+              Warehouse Reorder Needed
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {data.reorderFlags.length === 0 ? (
+              <EmptyState title="Warehouse stock is healthy" description="No items below reorder threshold." />
+            ) : (
+              <div className="divide-y">
+                {data.reorderFlags.slice(0, 8).map((r) => (
+                  <div key={r.id} className="flex items-center justify-between py-2.5">
+                    <p className="text-sm font-medium truncate flex-1 min-w-0">{r.sku || r.title}</p>
+                    <div className="flex items-center gap-3 shrink-0 ml-3">
+                      <span className="text-xs text-muted-foreground">{r.warehouseOnHand} on hand</span>
+                      <StatusChip variant="info">{r.warehouseDaysOfCover?.toFixed(0)}d cover</StatusChip>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              Recent Alerts
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {data.alerts.length === 0 ? (
+              <EmptyState title="No alerts" description="Everything is running smoothly." />
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {data.alerts.slice(0, 10).map((a) => (
+                  <div key={a.id} className="flex items-start gap-2 rounded-md px-3 py-2 text-sm bg-muted/50">
+                    <StatusChip variant={a.severity === "critical" ? "critical" : a.severity === "warning" ? "warning" : "neutral"}>
+                      {a.severity}
+                    </StatusChip>
+                    <span className="text-sm leading-5">{a.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <AppShell>
+      <DashboardContent />
+    </AppShell>
   );
 }

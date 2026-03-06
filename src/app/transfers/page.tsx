@@ -1,8 +1,28 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import Nav from "@/components/Nav";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import AppShell from "@/components/AppShell";
+import PageHeader from "@/components/PageHeader";
+import StatusChip from "@/components/StatusChip";
+import EmptyState from "@/components/EmptyState";
+import DataTableSkeleton from "@/components/DataTableSkeleton";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from "@/components/ui/sheet";
+import { Separator } from "@/components/ui/separator";
+import {
+  Download, Search, Brain, ArrowRightLeft, Package,
+  CheckCircle2, Truck, PackageCheck, X,
+} from "lucide-react";
+import { toast } from "sonner";
 
 interface Transfer {
   id: string; sku: string; title: string; productTitle: string; vendor: string;
@@ -12,62 +32,85 @@ interface Transfer {
   stockoutRisk: boolean; capitalTied: number | null; priority: number; status: string;
 }
 
-interface Location {
-  id: string; name: string;
+interface Location { id: string; name: string; }
+
+function getPriorityChip(daysOfCover: number, stockoutRisk: boolean) {
+  if (stockoutRisk || daysOfCover < 3) return <StatusChip variant="critical">Critical</StatusChip>;
+  if (daysOfCover < 7) return <StatusChip variant="warning">High</StatusChip>;
+  if (daysOfCover < 14) return <StatusChip variant="info">Medium</StatusChip>;
+  return <StatusChip variant="neutral">Low</StatusChip>;
 }
 
-export default function TransfersPage() {
-  const router = useRouter();
-  const [user, setUser] = useState<{ name?: string; email: string; role: string } | null>(null);
-  const [tenant, setTenant] = useState<{ name: string } | null>(null);
+function getStatusChip(status: string) {
+  switch (status) {
+    case "picked": return <StatusChip variant="info">Picked</StatusChip>;
+    case "shipped": return <StatusChip variant="purple">Shipped</StatusChip>;
+    case "received": return <StatusChip variant="success">Received</StatusChip>;
+    default: return <StatusChip variant="neutral">Pending</StatusChip>;
+  }
+}
+
+function TransfersContent() {
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [filterLocation, setFilterLocation] = useState("");
+  const [filterLocation, setFilterLocation] = useState("all");
   const [search, setSearch] = useState("");
+  const [searchDebounced, setSearchDebounced] = useState("");
   const [loading, setLoading] = useState(true);
   const [useAiPriority, setUseAiPriority] = useState(false);
   const [aiTransfers, setAiTransfers] = useState<Array<{ sku: string; variant_id: string; priority: number; qty: number }>>([]);
   const [hasAiData, setHasAiData] = useState(false);
+  const [drawerTransfer, setDrawerTransfer] = useState<Transfer | null>(null);
+
+  // Debounce search
+  useEffect(() => {
+    const t = setTimeout(() => setSearchDebounced(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const fetchData = useCallback(async () => {
     const params = new URLSearchParams();
-    if (filterLocation) params.set("locationId", filterLocation);
-    if (search) params.set("search", search);
+    if (filterLocation && filterLocation !== "all") params.set("locationId", filterLocation);
+    if (searchDebounced) params.set("search", searchDebounced);
 
-    const [auth, transferData] = await Promise.all([
-      fetch("/api/auth/me").then((r) => r.json()),
-      fetch(`/api/transfers?${params}`).then((r) => r.json()),
-    ]);
-
-    if (auth.error) { router.push("/login"); return; }
-    setUser(auth.user);
-    setTenant(auth.tenant);
-    setTransfers(transferData.transfers || []);
-    setLocations(transferData.locations || []);
-    setLoading(false);
-
-    // Load AI insights for priority toggle
     try {
-      const aiData = await fetch("/api/ai-insights").then((r) => r.json());
+      const res = await fetch(`/api/transfers?${params}`);
+      const data = await res.json();
+      setTransfers(data.transfers || []);
+      setLocations(data.locations || []);
+    } catch {
+      toast.error("Failed to load transfers");
+    } finally {
+      setLoading(false);
+    }
+
+    try {
+      const aiRes = await fetch("/api/ai-insights");
+      const aiData = await aiRes.json();
       if (aiData.insights?.prioritized_transfers?.length > 0) {
         setAiTransfers(aiData.insights.prioritized_transfers);
         setHasAiData(true);
       }
-    } catch { /* AI data is optional */ }
-  }, [filterLocation, search, router]);
+    } catch {}
+  }, [filterLocation, searchDebounced]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleStatusUpdate = async (status: string) => {
     if (selectedIds.size === 0) return;
-    await fetch("/api/transfers", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: Array.from(selectedIds), status }),
-    });
-    setSelectedIds(new Set());
-    fetchData();
+    try {
+      await fetch("/api/transfers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selectedIds), status }),
+      });
+      toast.success(`${selectedIds.size} transfer(s) marked as ${status}`);
+      setSelectedIds(new Set());
+      fetchData();
+    } catch {
+      toast.error("Failed to update status");
+    }
   };
 
   const toggleSelect = (id: string) => {
@@ -79,155 +122,312 @@ export default function TransfersPage() {
   };
 
   const selectAll = () => {
-    if (selectedIds.size === transfers.length) setSelectedIds(new Set());
-    else setSelectedIds(new Set(transfers.map((t) => t.id)));
+    if (selectedIds.size === displayTransfers.length)
+      setSelectedIds(new Set());
+    else
+      setSelectedIds(new Set(displayTransfers.map((t) => t.id)));
   };
 
-  // Apply AI prioritization if toggled on
-  const displayTransfers = useAiPriority && hasAiData
-    ? [...transfers].sort((a, b) => {
-        const aiA = aiTransfers.find((ai) => ai.sku === a.sku);
-        const aiB = aiTransfers.find((ai) => ai.sku === b.sku);
-        return (aiB?.priority ?? 0) - (aiA?.priority ?? 0);
-      })
-    : transfers;
+  const displayTransfers = useMemo(() => {
+    if (!useAiPriority || !hasAiData) return transfers;
+    return [...transfers].sort((a, b) => {
+      const aiA = aiTransfers.find((ai) => ai.sku === a.sku);
+      const aiB = aiTransfers.find((ai) => ai.sku === b.sku);
+      return (aiB?.priority ?? 0) - (aiA?.priority ?? 0);
+    });
+  }, [transfers, useAiPriority, hasAiData, aiTransfers]);
 
-  const getAiSuggestedQty = (sku: string): number | null => {
+  const getAiQty = (sku: string) => {
     if (!useAiPriority || !hasAiData) return null;
     return aiTransfers.find((ai) => ai.sku === sku)?.qty ?? null;
   };
 
-  if (loading || !user || !tenant) {
-    return <div className="flex items-center justify-center min-h-screen text-gray-500">Loading...</div>;
-  }
+  if (loading) return <DataTableSkeleton columns={8} rows={10} />;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Nav user={user} tenant={tenant} />
-      <div className="max-w-7xl mx-auto p-6">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Transfer Plan</h1>
-          <div className="flex space-x-2">
-            <a
-              href={`/api/transfers/csv${filterLocation ? `?locationId=${filterLocation}` : ""}`}
-              className="bg-emerald-600 text-white px-4 py-2 rounded text-sm hover:bg-emerald-700"
-            >
-              Export CSV
+    <div className="space-y-4">
+      <PageHeader title="Transfers" subtitle="Transfer recommendations from warehouse to destinations">
+        <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <>
+              <Badge variant="secondary">{selectedIds.size} selected</Badge>
+              <Button size="sm" variant="outline" onClick={() => handleStatusUpdate("picked")}>
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Picked
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => handleStatusUpdate("shipped")}>
+                <Truck className="h-3.5 w-3.5 mr-1" /> Shipped
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => handleStatusUpdate("received")}>
+                <PackageCheck className="h-3.5 w-3.5 mr-1" /> Received
+              </Button>
+              <Separator orientation="vertical" className="h-6" />
+            </>
+          )}
+          <Button size="sm" variant="outline" asChild>
+            <a href={`/api/transfers/csv${filterLocation && filterLocation !== "all" ? `?locationId=${filterLocation}` : ""}`}>
+              <Download className="h-3.5 w-3.5 mr-1" /> Export CSV
             </a>
-            {selectedIds.size > 0 && (
-              <>
-                <button onClick={() => handleStatusUpdate("picked")} className="bg-blue-600 text-white px-3 py-2 rounded text-sm">Mark Picked</button>
-                <button onClick={() => handleStatusUpdate("shipped")} className="bg-indigo-600 text-white px-3 py-2 rounded text-sm">Mark Shipped</button>
-                <button onClick={() => handleStatusUpdate("received")} className="bg-green-600 text-white px-3 py-2 rounded text-sm">Mark Received</button>
-              </>
-            )}
-          </div>
+          </Button>
         </div>
+      </PageHeader>
 
-        {/* Filters */}
-        <div className="flex space-x-4 mb-4">
-          <select
-            value={filterLocation}
-            onChange={(e) => setFilterLocation(e.target.value)}
-            className="border rounded px-3 py-2 text-sm"
-          >
-            <option value="">All Locations</option>
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>{l.name}</option>
-            ))}
-          </select>
-          <input
-            type="text"
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
             placeholder="Search SKU or product..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="border rounded px-3 py-2 text-sm flex-1 max-w-md"
+            className="pl-9 h-9"
           />
-          {hasAiData && (
-            <label className="flex items-center space-x-2 text-sm">
-              <input
-                type="checkbox"
-                checked={useAiPriority}
-                onChange={(e) => setUseAiPriority(e.target.checked)}
-                className="rounded"
-              />
-              <span className="text-gray-700">AI prioritization</span>
-            </label>
-          )}
         </div>
-
-        {/* Table */}
-        <div className="bg-white rounded-lg shadow-sm overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-500 border-b bg-gray-50">
-                <th className="p-3">
-                  <input type="checkbox" onChange={selectAll} checked={selectedIds.size === transfers.length && transfers.length > 0} />
-                </th>
-                <th className="p-3">SKU</th>
-                <th className="p-3">Product</th>
-                <th className="p-3">Destination</th>
-                <th className="p-3">WH Stock</th>
-                <th className="p-3">Dest Stock</th>
-                <th className="p-3">Avg Sales/d</th>
-                <th className="p-3">Cover (d)</th>
-                <th className="p-3">Transfer Qty</th>
-                {useAiPriority && <th className="p-3">AI Qty</th>}
-                <th className="p-3">Risk</th>
-                <th className="p-3">Capital</th>
-                <th className="p-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayTransfers.map((t) => (
-                <tr key={t.id} className="border-b hover:bg-gray-50">
-                  <td className="p-3">
-                    <input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSelect(t.id)} />
-                  </td>
-                  <td className="p-3 font-medium">{t.sku || "-"}</td>
-                  <td className="p-3">{t.productTitle} / {t.title}</td>
-                  <td className="p-3">{t.destinationName}</td>
-                  <td className="p-3">{t.warehouseOnHand}</td>
-                  <td className="p-3">{t.destOnHand}</td>
-                  <td className="p-3">{t.avgDailySales30?.toFixed(1)}</td>
-                  <td className="p-3">
-                    <span className={`px-2 py-0.5 rounded text-xs ${
-                      t.daysOfCover < 5 ? "bg-red-100 text-red-700"
-                      : t.daysOfCover < 15 ? "bg-yellow-100 text-yellow-700"
-                      : "bg-green-100 text-green-700"
-                    }`}>
-                      {t.daysOfCover?.toFixed(0)}
-                    </span>
-                  </td>
-                  <td className="p-3 font-bold text-emerald-700">{t.transferQty}</td>
-                  {useAiPriority && (
-                    <td className="p-3 text-purple-700 font-medium">
-                      {getAiSuggestedQty(t.sku) !== null ? getAiSuggestedQty(t.sku) : "-"}
-                    </td>
-                  )}
-                  <td className="p-3">
-                    {t.stockoutRisk && <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs">STOCKOUT</span>}
-                  </td>
-                  <td className="p-3">{t.capitalTied !== null ? `$${t.capitalTied.toFixed(0)}` : "N/A"}</td>
-                  <td className="p-3">
-                    <span className={`px-2 py-0.5 rounded text-xs ${
-                      t.status === "pending" ? "bg-gray-100"
-                      : t.status === "picked" ? "bg-blue-100 text-blue-700"
-                      : t.status === "shipped" ? "bg-indigo-100 text-indigo-700"
-                      : "bg-green-100 text-green-700"
-                    }`}>
-                      {t.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-              {transfers.length === 0 && (
-                <tr><td colSpan={useAiPriority ? 13 : 12} className="p-6 text-center text-gray-500">No transfer recommendations</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <Select value={filterLocation} onValueChange={setFilterLocation}>
+          <SelectTrigger className="w-[200px] h-9">
+            <SelectValue placeholder="All Destinations" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Destinations</SelectItem>
+            {locations.map((l) => (
+              <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {hasAiData && (
+          <Button
+            size="sm"
+            variant={useAiPriority ? "default" : "outline"}
+            onClick={() => setUseAiPriority(!useAiPriority)}
+            className="h-9"
+          >
+            <Brain className="h-3.5 w-3.5 mr-1" />
+            AI Priority
+          </Button>
+        )}
       </div>
+
+      {/* Table */}
+      {displayTransfers.length === 0 ? (
+        <Card>
+          <CardContent className="py-0">
+            <EmptyState
+              icon={<ArrowRightLeft className="h-6 w-6 text-muted-foreground" />}
+              title="No transfer recommendations"
+              description="All destinations have sufficient inventory coverage."
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="rounded-lg border bg-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm sticky-header">
+              <thead>
+                <tr className="border-b bg-muted/50 text-muted-foreground">
+                  <th className="p-3 w-10">
+                    <Checkbox
+                      checked={selectedIds.size === displayTransfers.length && displayTransfers.length > 0}
+                      onCheckedChange={selectAll}
+                      aria-label="Select all"
+                    />
+                  </th>
+                  <th className="p-3 text-left font-medium">SKU</th>
+                  <th className="p-3 text-left font-medium">Product</th>
+                  <th className="p-3 text-left font-medium">Destination</th>
+                  <th className="p-3 text-right font-medium">WH Stock</th>
+                  <th className="p-3 text-right font-medium">Dest Stock</th>
+                  <th className="p-3 text-right font-medium">Avg/day</th>
+                  <th className="p-3 text-center font-medium">Cover</th>
+                  <th className="p-3 text-right font-medium">Transfer Qty</th>
+                  {useAiPriority && <th className="p-3 text-right font-medium">AI Qty</th>}
+                  <th className="p-3 text-center font-medium">Priority</th>
+                  <th className="p-3 text-center font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayTransfers.map((t) => (
+                  <tr
+                    key={t.id}
+                    className="border-b hover:bg-muted/30 cursor-pointer transition-colors"
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest('input[type="checkbox"]')) return;
+                      setDrawerTransfer(t);
+                    }}
+                  >
+                    <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selectedIds.has(t.id)}
+                        onCheckedChange={() => toggleSelect(t.id)}
+                        aria-label={`Select ${t.sku}`}
+                      />
+                    </td>
+                    <td className="p-3 font-medium">{t.sku || "-"}</td>
+                    <td className="p-3 text-muted-foreground truncate max-w-[200px]">
+                      {t.productTitle}{t.title && t.title !== "Default Title" ? ` / ${t.title}` : ""}
+                    </td>
+                    <td className="p-3">{t.destinationName}</td>
+                    <td className="p-3 text-right tabular-nums">{t.warehouseOnHand}</td>
+                    <td className="p-3 text-right tabular-nums">{t.destOnHand}</td>
+                    <td className="p-3 text-right tabular-nums">{t.avgDailySales30?.toFixed(1)}</td>
+                    <td className="p-3 text-center">
+                      <StatusChip variant={t.daysOfCover < 5 ? "critical" : t.daysOfCover < 15 ? "warning" : "success"}>
+                        {t.daysOfCover?.toFixed(0)}d
+                      </StatusChip>
+                    </td>
+                    <td className="p-3 text-right">
+                      <span className="font-bold text-primary tabular-nums">{t.transferQty}</span>
+                    </td>
+                    {useAiPriority && (
+                      <td className="p-3 text-right tabular-nums">
+                        {getAiQty(t.sku) !== null ? (
+                          <span className="font-medium text-purple-700">{getAiQty(t.sku)}</span>
+                        ) : "-"}
+                      </td>
+                    )}
+                    <td className="p-3 text-center">{getPriorityChip(t.daysOfCover, t.stockoutRisk)}</td>
+                    <td className="p-3 text-center">{getStatusChip(t.status)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Detail Drawer */}
+      <Sheet open={!!drawerTransfer} onOpenChange={(open) => !open && setDrawerTransfer(null)}>
+        <SheetContent className="sm:max-w-md overflow-y-auto">
+          {drawerTransfer && (
+            <>
+              <SheetHeader>
+                <SheetTitle className="flex items-center gap-2">
+                  <Package className="h-5 w-5 text-primary" />
+                  {drawerTransfer.sku || drawerTransfer.title}
+                </SheetTitle>
+                <SheetDescription>
+                  {drawerTransfer.productTitle}
+                  {drawerTransfer.title && drawerTransfer.title !== "Default Title" ? ` / ${drawerTransfer.title}` : ""}
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="space-y-6 mt-6">
+                {/* Priority & Status */}
+                <div className="flex items-center gap-3">
+                  {getPriorityChip(drawerTransfer.daysOfCover, drawerTransfer.stockoutRisk)}
+                  {getStatusChip(drawerTransfer.status)}
+                  {drawerTransfer.vendor && (
+                    <Badge variant="outline">{drawerTransfer.vendor}</Badge>
+                  )}
+                </div>
+
+                {/* Transfer Details */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Transfer Details</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Destination</span>
+                      <span className="font-medium">{drawerTransfer.destinationName}</span>
+                    </div>
+                    <Separator />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Recommended Qty</span>
+                      <span className="font-bold text-primary text-lg">{drawerTransfer.transferQty}</span>
+                    </div>
+                    {useAiPriority && getAiQty(drawerTransfer.sku) !== null && (
+                      <>
+                        <Separator />
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">AI Suggested Qty</span>
+                          <span className="font-medium text-purple-700">{getAiQty(drawerTransfer.sku)}</span>
+                        </div>
+                      </>
+                    )}
+                    <Separator />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Target On-Hand</span>
+                      <span>{drawerTransfer.targetOnHand}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Inventory Metrics */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Inventory Metrics</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Warehouse On-Hand</span>
+                      <span className="font-medium">{drawerTransfer.warehouseOnHand}</span>
+                    </div>
+                    <Separator />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Destination On-Hand</span>
+                      <span className="font-medium">{drawerTransfer.destOnHand}</span>
+                    </div>
+                    <Separator />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Avg Daily Sales (30d)</span>
+                      <span>{drawerTransfer.avgDailySales30?.toFixed(2)}</span>
+                    </div>
+                    <Separator />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Days of Cover</span>
+                      <StatusChip variant={drawerTransfer.daysOfCover < 5 ? "critical" : drawerTransfer.daysOfCover < 15 ? "warning" : "success"}>
+                        {drawerTransfer.daysOfCover?.toFixed(1)}d
+                      </StatusChip>
+                    </div>
+                    {drawerTransfer.capitalTied !== null && (
+                      <>
+                        <Separator />
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Capital Tied</span>
+                          <span>${drawerTransfer.capitalTied?.toFixed(2)}</span>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Quick Actions */}
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => {
+                      setSelectedIds((prev) => new Set(prev).add(drawerTransfer.id));
+                      setDrawerTransfer(null);
+                      toast.info("Added to selection");
+                    }}
+                  >
+                    Add to Plan
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      handleStatusUpdate("received");
+                      setDrawerTransfer(null);
+                    }}
+                  >
+                    Mark Received
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
+  );
+}
+
+export default function TransfersPage() {
+  return (
+    <AppShell>
+      <TransfersContent />
+    </AppShell>
   );
 }

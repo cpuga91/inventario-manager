@@ -2,25 +2,57 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Package, Wifi, MapPin, SlidersHorizontal, Database,
+  Check, ChevronLeft, ChevronRight, Loader2, Search,
+  AlertCircle,
+} from "lucide-react";
 
 interface ShopifyLocation {
-  id: string;
-  name: string;
-  isActive: boolean;
+  id: string; name: string; isActive: boolean;
 }
+
+const steps = [
+  { icon: Wifi, title: "Connect Shopify", desc: "Validate your Shopify API connection" },
+  { icon: MapPin, title: "Map Locations", desc: "Assign warehouse, stores, and online channel" },
+  { icon: SlidersHorizontal, title: "Business Rules", desc: "Set replenishment thresholds" },
+  { icon: Database, title: "Initialize Data", desc: "Import 12 months of history" },
+];
+
+const ruleLabels: Record<string, { label: string; desc: string }> = {
+  leadTimeDays: { label: "Lead Time (days)", desc: "Warehouse to store delivery" },
+  safetyDays: { label: "Safety Stock (days)", desc: "Buffer to prevent stockouts" },
+  reviewCycleDays: { label: "Review Cycle (days)", desc: "Between replenishment reviews" },
+  overstockThresholdDays: { label: "Overstock Threshold (days)", desc: "Flag as overstock" },
+  deadStockDays: { label: "Dead Stock (days)", desc: "No sale = dead stock" },
+  warehouseBufferQty: { label: "Warehouse Buffer (qty)", desc: "Min qty in warehouse" },
+  targetCoverDays: { label: "Target Cover (days)", desc: "Target at destinations" },
+};
 
 export default function WizardPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
 
   // Step 1
   const [shopName, setShopName] = useState("");
 
   // Step 2
   const [locations, setLocations] = useState<ShopifyLocation[]>([]);
+  const [locationSearch, setLocationSearch] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [storeIds, setStoreIds] = useState<string[]>([]);
   const [onlineStrategy, setOnlineStrategy] = useState<"real" | "virtual">("real");
@@ -28,13 +60,9 @@ export default function WizardPage() {
 
   // Step 3
   const [rules, setRules] = useState({
-    leadTimeDays: 3,
-    safetyDays: 2,
-    reviewCycleDays: 7,
-    overstockThresholdDays: 90,
-    deadStockDays: 180,
-    warehouseBufferQty: 5,
-    targetCoverDays: 30,
+    leadTimeDays: 3, safetyDays: 2, reviewCycleDays: 7,
+    overstockThresholdDays: 90, deadStockDays: 180,
+    warehouseBufferQty: 5, targetCoverDays: 30,
   });
 
   // Step 4
@@ -43,16 +71,13 @@ export default function WizardPage() {
     analytics: { transferCount: number; discountCount: number };
   }>(null);
 
-  // Resume wizard from last step
+  // Resume wizard
   useEffect(() => {
     fetch("/api/wizard")
       .then((r) => r.json())
       .then((data) => {
-        if (data.wizardComplete) {
-          router.push("/dashboard");
-        } else if (data.wizardStep > 0) {
-          setStep(data.wizardStep + 1);
-        }
+        if (data.wizardComplete) router.push("/dashboard");
+        else if (data.wizardStep > 0) setStep(data.wizardStep + 1);
       })
       .catch(() => router.push("/login"));
   }, [router]);
@@ -64,14 +89,11 @@ export default function WizardPage() {
   }, []);
 
   useEffect(() => {
-    if (step === 2 && locations.length === 0) {
-      fetchLocations();
-    }
+    if (step === 2 && locations.length === 0) fetchLocations();
   }, [step, locations.length, fetchLocations]);
 
   const handleStep1 = async () => {
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
     try {
       const res = await fetch("/api/wizard", {
         method: "POST",
@@ -80,42 +102,28 @@ export default function WizardPage() {
       });
       const data = await res.json();
       if (data.error) setError(data.error);
-      else {
-        setShopName(data.shopName);
-        setStep(2);
-      }
-    } catch (e) {
-      setError("Connection failed");
-    } finally {
-      setLoading(false);
-    }
+      else { setShopName(data.shopName); setStep(2); }
+    } catch { setError("Connection failed"); }
+    finally { setLoading(false); }
   };
 
   const handleStep2 = async () => {
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
     try {
       const res = await fetch("/api/wizard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          step: 2,
-          data: { warehouseId, storeIds, onlineStrategy, onlineLocationId },
-        }),
+        body: JSON.stringify({ step: 2, data: { warehouseId, storeIds, onlineStrategy, onlineLocationId } }),
       });
       const data = await res.json();
       if (data.error) setError(data.error);
       else setStep(3);
-    } catch {
-      setError("Failed to save locations");
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError("Failed to save locations"); }
+    finally { setLoading(false); }
   };
 
   const handleStep3 = async () => {
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
     try {
       const res = await fetch("/api/wizard", {
         method: "POST",
@@ -125,238 +133,332 @@ export default function WizardPage() {
       const data = await res.json();
       if (data.error) setError(data.error);
       else setStep(4);
-    } catch {
-      setError("Failed to save rules");
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError("Failed to save rules"); }
+    finally { setLoading(false); }
   };
 
   const handleStep4 = async () => {
-    setLoading(true);
-    setError("");
-    setMessage("Running backfill + analytics... This may take several minutes.");
+    setLoading(true); setError("");
     try {
       const res = await fetch("/api/sync/backfill", { method: "POST" });
       const data = await res.json();
       if (data.error) setError(data.error);
-      else {
-        setBackfillStatus(data);
-        setMessage("Setup complete!");
-      }
-    } catch {
-      setError("Backfill failed");
-    } finally {
-      setLoading(false);
-    }
+      else setBackfillStatus(data);
+    } catch { setError("Backfill failed"); }
+    finally { setLoading(false); }
   };
 
-  const toggleStoreId = (id: string) => {
-    setStoreIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
-  };
+  const filteredLocations = locations.filter((l) =>
+    l.isActive && l.name.toLowerCase().includes(locationSearch.toLowerCase())
+  );
+
+  const availableStores = filteredLocations.filter((l) => l.id !== warehouseId);
+
+  const progressPercent = ((step - 1) / 4) * 100 + (backfillStatus ? 25 : 0);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="max-w-2xl w-full bg-white rounded-lg shadow-md p-8">
-        <h1 className="text-2xl font-bold text-emerald-700 mb-2">Setup Wizard</h1>
-        <div className="flex items-center space-x-2 mb-6">
-          {[1, 2, 3, 4].map((s) => (
-            <div
-              key={s}
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                s === step
-                  ? "bg-emerald-600 text-white"
-                  : s < step
-                  ? "bg-emerald-100 text-emerald-700"
-                  : "bg-gray-200 text-gray-500"
-              }`}
-            >
-              {s}
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="max-w-2xl w-full">
+        {/* Logo */}
+        <div className="flex items-center justify-center mb-8">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-primary text-primary-foreground font-bold">
+              A
             </div>
-          ))}
-          <span className="text-sm text-gray-500 ml-2">
-            {step === 1 && "Connect Shopify"}
-            {step === 2 && "Map Locations"}
-            {step === 3 && "Business Rules"}
-            {step === 4 && "Initialize Data"}
-          </span>
+            <span className="text-lg font-bold">Adagio Setup</span>
+          </div>
         </div>
 
-        {error && <div className="bg-red-50 text-red-700 p-3 rounded text-sm mb-4">{error}</div>}
-        {message && !error && (
-          <div className="bg-blue-50 text-blue-700 p-3 rounded text-sm mb-4">{message}</div>
-        )}
-
-        {/* Step 1: Connect Shopify */}
-        {step === 1 && (
-          <div>
-            <p className="text-gray-600 mb-4">
-              We will validate your Shopify connection using the SHOPIFY_SHOP and
-              SHOPIFY_ACCESS_TOKEN environment variables.
-            </p>
-            <button
-              onClick={handleStep1}
-              disabled={loading}
-              className="bg-emerald-600 text-white px-6 py-2 rounded font-medium hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {loading ? "Testing connection..." : "Test Connection"}
-            </button>
-            {shopName && (
-              <p className="mt-3 text-green-700">Connected to: {shopName}</p>
-            )}
-          </div>
-        )}
-
-        {/* Step 2: Locations */}
-        {step === 2 && (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Warehouse Location (not assigned to sales channels)
-              </label>
-              <select
-                value={warehouseId}
-                onChange={(e) => setWarehouseId(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm"
-              >
-                <option value="">Select warehouse...</option>
-                {locations.filter((l) => l.isActive).map((l) => (
-                  <option key={l.id} value={l.id}>{l.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Store Locations (select all POS stores)
-              </label>
-              <div className="space-y-1 max-h-40 overflow-y-auto border rounded p-2">
-                {locations
-                  .filter((l) => l.isActive && l.id !== warehouseId)
-                  .map((l) => (
-                    <label key={l.id} className="flex items-center space-x-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={storeIds.includes(l.id)}
-                        onChange={() => toggleStoreId(l.id)}
-                      />
-                      <span>{l.name}</span>
-                    </label>
-                  ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Online Channel Mapping
-              </label>
-              <div className="space-y-2">
-                <label className="flex items-center space-x-2 text-sm">
-                  <input
-                    type="radio"
-                    value="real"
-                    checked={onlineStrategy === "real"}
-                    onChange={() => setOnlineStrategy("real")}
-                  />
-                  <span>Map to a real Shopify location</span>
-                </label>
-                <label className="flex items-center space-x-2 text-sm">
-                  <input
-                    type="radio"
-                    value="virtual"
-                    checked={onlineStrategy === "virtual"}
-                    onChange={() => setOnlineStrategy("virtual")}
-                  />
-                  <span>Virtual mapping (uses a fulfillment location for inventory)</span>
-                </label>
-              </div>
-              {(onlineStrategy === "real" || onlineStrategy === "virtual") && (
-                <select
-                  value={onlineLocationId}
-                  onChange={(e) => setOnlineLocationId(e.target.value)}
-                  className="w-full border rounded px-3 py-2 text-sm mt-2"
-                >
-                  <option value="">Select location for Online...</option>
-                  {locations.filter((l) => l.isActive).map((l) => (
-                    <option key={l.id} value={l.id}>{l.name}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            <button
-              onClick={handleStep2}
-              disabled={loading || !warehouseId}
-              className="bg-emerald-600 text-white px-6 py-2 rounded font-medium hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {loading ? "Saving..." : "Next: Business Rules"}
-            </button>
-          </div>
-        )}
-
-        {/* Step 3: Business Rules */}
-        {step === 3 && (
-          <div className="space-y-3">
-            {Object.entries(rules).map(([key, val]) => (
-              <div key={key}>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {key.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase())}
-                </label>
-                <input
-                  type="number"
-                  value={val}
-                  onChange={(e) => setRules({ ...rules, [key]: parseInt(e.target.value) || 0 })}
-                  className="w-full border rounded px-3 py-2 text-sm"
-                />
-              </div>
-            ))}
-            <button
-              onClick={handleStep3}
-              disabled={loading}
-              className="bg-emerald-600 text-white px-6 py-2 rounded font-medium hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {loading ? "Saving..." : "Next: Initialize Data"}
-            </button>
-          </div>
-        )}
-
-        {/* Step 4: Backfill */}
-        {step === 4 && (
-          <div>
-            <p className="text-gray-600 mb-4">
-              This will import your last 12 months of data from Shopify and run the first analytics computation.
-            </p>
-            {!backfillStatus ? (
-              <button
-                onClick={handleStep4}
-                disabled={loading}
-                className="bg-emerald-600 text-white px-6 py-2 rounded font-medium hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {loading ? "Running backfill..." : "Start Backfill"}
-              </button>
-            ) : (
-              <div className="space-y-3">
-                <div className="bg-green-50 p-4 rounded">
-                  <h3 className="font-medium text-green-800 mb-2">Backfill Complete</h3>
-                  <ul className="text-sm text-green-700 space-y-1">
-                    <li>Products: {backfillStatus.sync.products}</li>
-                    <li>Variants: {backfillStatus.sync.variants}</li>
-                    <li>Orders: {backfillStatus.sync.orders}</li>
-                    <li>Inventory records: {backfillStatus.sync.inventoryLevels}</li>
-                    <li>Transfer recommendations: {backfillStatus.analytics.transferCount}</li>
-                    <li>Discount recommendations: {backfillStatus.analytics.discountCount}</li>
-                  </ul>
+        {/* Stepper */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            {steps.map((s, i) => {
+              const stepNum = i + 1;
+              const isActive = stepNum === step;
+              const isDone = stepNum < step || (stepNum === 4 && backfillStatus);
+              return (
+                <div key={i} className="flex items-center gap-2">
+                  <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium transition-colors ${
+                    isDone ? "bg-primary text-primary-foreground" :
+                    isActive ? "bg-primary text-primary-foreground" :
+                    "bg-muted text-muted-foreground"
+                  }`}>
+                    {isDone ? <Check className="h-4 w-4" /> : stepNum}
+                  </div>
+                  <span className={`hidden sm:inline text-sm ${isActive ? "font-medium" : "text-muted-foreground"}`}>
+                    {s.title}
+                  </span>
+                  {i < steps.length - 1 && (
+                    <div className={`hidden sm:block w-8 lg:w-16 h-px ${stepNum < step ? "bg-primary" : "bg-border"}`} />
+                  )}
                 </div>
-                <button
-                  onClick={() => router.push("/dashboard")}
-                  className="bg-emerald-600 text-white px-6 py-2 rounded font-medium hover:bg-emerald-700"
-                >
-                  Go to Dashboard
-                </button>
+              );
+            })}
+          </div>
+          <Progress value={progressPercent} className="h-1" />
+        </div>
+
+        {/* Step Content */}
+        <Card>
+          <CardContent className="p-6">
+            {/* Step Header */}
+            <div className="mb-6">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                {(() => { const Icon = steps[step - 1].icon; return <Icon className="h-5 w-5 text-primary" />; })()}
+                {steps[step - 1].title}
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">{steps[step - 1].desc}</p>
+            </div>
+
+            {error && (
+              <div className="flex items-start gap-2 bg-destructive/10 text-destructive p-3 rounded-lg text-sm mb-4">
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>{error}</span>
               </div>
             )}
-          </div>
-        )}
+
+            {/* Step 1: Connect Shopify */}
+            {step === 1 && (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  We&apos;ll validate your Shopify connection using the <code className="bg-muted px-1.5 py-0.5 rounded text-xs">SHOPIFY_SHOP</code> and <code className="bg-muted px-1.5 py-0.5 rounded text-xs">SHOPIFY_ACCESS_TOKEN</code> environment variables.
+                </p>
+                {shopName && (
+                  <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 p-3 rounded-lg">
+                    <Check className="h-4 w-4" />
+                    Connected to: <strong>{shopName}</strong>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Step 2: Locations */}
+            {step === 2 && (
+              <div className="space-y-6">
+                {/* Warehouse */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Warehouse Location *</Label>
+                  <p className="text-xs text-muted-foreground">Central fulfillment location (not a sales channel)</p>
+                  <Select value={warehouseId} onValueChange={setWarehouseId}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Select warehouse..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations.filter((l) => l.isActive).map((l) => (
+                        <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <Separator />
+
+                {/* Stores */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="text-sm font-semibold">Store Locations</Label>
+                      <p className="text-xs text-muted-foreground">Select all POS store locations</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm" variant="ghost" className="h-7 text-xs"
+                        onClick={() => setStoreIds(availableStores.map((l) => l.id))}
+                      >
+                        Select all
+                      </Button>
+                      <Button
+                        size="sm" variant="ghost" className="h-7 text-xs"
+                        onClick={() => setStoreIds([])}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                  {locations.length > 5 && (
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        placeholder="Search locations..."
+                        value={locationSearch}
+                        onChange={(e) => setLocationSearch(e.target.value)}
+                        className="pl-9 h-8 text-sm"
+                      />
+                    </div>
+                  )}
+                  <div className="space-y-1 max-h-40 overflow-y-auto rounded-lg border p-2">
+                    {availableStores.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-2">
+                        {warehouseId ? "No other locations available" : "Select a warehouse first"}
+                      </p>
+                    ) : (
+                      availableStores.map((l) => (
+                        <label key={l.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer">
+                          <Checkbox
+                            checked={storeIds.includes(l.id)}
+                            onCheckedChange={() => {
+                              setStoreIds((prev) =>
+                                prev.includes(l.id) ? prev.filter((s) => s !== l.id) : [...prev, l.id]
+                              );
+                            }}
+                          />
+                          <span className="text-sm">{l.name}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                  {storeIds.length > 0 && (
+                    <Badge variant="secondary">{storeIds.length} store(s) selected</Badge>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Online Strategy */}
+                <div className="space-y-3">
+                  <Label className="text-sm font-semibold">Online Channel Mapping</Label>
+                  <RadioGroup
+                    value={onlineStrategy}
+                    onValueChange={(v) => setOnlineStrategy(v as "real" | "virtual")}
+                    className="grid grid-cols-2 gap-3"
+                  >
+                    <label className={`flex items-start gap-3 rounded-lg border p-4 cursor-pointer transition-colors ${onlineStrategy === "real" ? "border-primary bg-primary/5" : ""}`}>
+                      <RadioGroupItem value="real" className="mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium">Real Location</p>
+                        <p className="text-xs text-muted-foreground">Map to a Shopify location</p>
+                      </div>
+                    </label>
+                    <label className={`flex items-start gap-3 rounded-lg border p-4 cursor-pointer transition-colors ${onlineStrategy === "virtual" ? "border-primary bg-primary/5" : ""}`}>
+                      <RadioGroupItem value="virtual" className="mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium">Virtual Mapping</p>
+                        <p className="text-xs text-muted-foreground">Uses fulfillment location</p>
+                      </div>
+                    </label>
+                  </RadioGroup>
+                  <Select value={onlineLocationId} onValueChange={setOnlineLocationId}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Select location for Online..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations.filter((l) => l.isActive).map((l) => (
+                        <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Business Rules */}
+            {step === 3 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {Object.entries(rules).map(([key, val]) => (
+                  <div key={key} className="space-y-1.5">
+                    <Label htmlFor={`wiz-${key}`} className="text-sm">
+                      {ruleLabels[key]?.label || key}
+                    </Label>
+                    <Input
+                      id={`wiz-${key}`}
+                      type="number"
+                      value={val}
+                      onChange={(e) => setRules({ ...rules, [key]: parseInt(e.target.value) || 0 })}
+                      className="h-9"
+                    />
+                    <p className="text-xs text-muted-foreground">{ruleLabels[key]?.desc}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Step 4: Backfill */}
+            {step === 4 && (
+              <div className="space-y-4">
+                {!backfillStatus ? (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-muted-foreground mb-4">
+                      This will import your last 12 months of Shopify data and run the first analytics computation.
+                    </p>
+                    {loading && (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-center gap-2 text-sm text-primary">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Running backfill + analytics... This may take several minutes.
+                        </div>
+                        <Progress value={undefined} className="h-1" />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 p-3 rounded-lg">
+                      <Check className="h-5 w-5" />
+                      <span className="font-medium">Setup Complete!</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {[
+                        { label: "Products", value: backfillStatus.sync.products },
+                        { label: "Variants", value: backfillStatus.sync.variants },
+                        { label: "Orders", value: backfillStatus.sync.orders },
+                        { label: "Inventory Records", value: backfillStatus.sync.inventoryLevels },
+                        { label: "Transfer Recs", value: backfillStatus.analytics.transferCount },
+                        { label: "Discount Recs", value: backfillStatus.analytics.discountCount },
+                      ].map((item) => (
+                        <div key={item.label} className="rounded-lg border p-3 text-center">
+                          <p className="text-lg font-bold">{item.value}</p>
+                          <p className="text-xs text-muted-foreground">{item.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Navigation Buttons */}
+            <div className="flex items-center justify-between mt-8 pt-4 border-t">
+              <div>
+                {step > 1 && !backfillStatus && (
+                  <Button variant="ghost" size="sm" onClick={() => setStep(step - 1)} disabled={loading}>
+                    <ChevronLeft className="h-4 w-4 mr-1" /> Back
+                  </Button>
+                )}
+              </div>
+              <div>
+                {step === 1 && (
+                  <Button onClick={handleStep1} disabled={loading}>
+                    {loading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Wifi className="h-4 w-4 mr-1" />}
+                    Test Connection
+                  </Button>
+                )}
+                {step === 2 && (
+                  <Button onClick={handleStep2} disabled={loading || !warehouseId}>
+                    {loading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+                    Continue <ChevronRight className="h-4 w-4 ml-1" />
+                  </Button>
+                )}
+                {step === 3 && (
+                  <Button onClick={handleStep3} disabled={loading}>
+                    {loading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+                    Continue <ChevronRight className="h-4 w-4 ml-1" />
+                  </Button>
+                )}
+                {step === 4 && !backfillStatus && (
+                  <Button onClick={handleStep4} disabled={loading}>
+                    {loading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Database className="h-4 w-4 mr-1" />}
+                    Start Backfill
+                  </Button>
+                )}
+                {step === 4 && backfillStatus && (
+                  <Button onClick={() => router.push("/dashboard")}>
+                    Go to Dashboard <ChevronRight className="h-4 w-4 ml-1" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
