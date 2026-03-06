@@ -4,6 +4,15 @@ Multi-location inventory replenishment web app for Shopify POS stores.
 
 **Model:** Central Warehouse (Shopify Location) → Stores + Online
 
+## Documentation
+
+Full documentation is available at `/docs` in the running app. See all guides:
+setup wizard, transfers playbook, AI insights, troubleshooting, and technical reference.
+
+To preview docs locally: `npm run dev` then visit `http://localhost:3000/docs`
+
+To regenerate auto-generated docs: `npm run docs:generate`
+
 ## Features
 
 - **Setup Wizard**: 4-step resumable wizard (Connect Shopify → Map Locations → Business Rules → Backfill)
