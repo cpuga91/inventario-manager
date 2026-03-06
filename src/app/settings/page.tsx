@@ -2,216 +2,114 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Nav from "@/components/Nav";
+import AppShell, { useAppShell } from "@/components/AppShell";
+import PageHeader from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Settings, Save, Download, Upload, Play, Brain,
+  RotateCcw, Trash2, Loader2, CheckCircle2, AlertTriangle,
+  Zap, Shield, FileText,
+} from "lucide-react";
+import { toast } from "sonner";
 
 interface OpenAiSettingsState {
-  isEnabled: boolean;
-  model: string;
-  dailyHourLocal: number;
-  timezone: string;
-  maxSkus: number;
-  promptVersion: string;
+  isEnabled: boolean; model: string; dailyHourLocal: number; timezone: string;
+  maxSkus: number; promptVersion: string;
   keyStorageMode: "ENV_ONLY" | "DB_ENCRYPTED";
-  hasStoredKey: boolean;
-  apiKeyLast4: string | null;
+  hasStoredKey: boolean; apiKeyLast4: string | null;
 }
 
 interface WizardState {
-  wizardStep: number;
-  wizardComplete: boolean;
-  lastUpdated: string | null;
+  wizardStep: number; wizardComplete: boolean; lastUpdated: string | null;
 }
 
 type ResetMode = "SOFT" | "HARD" | null;
 
-function ResetModal({
-  mode,
-  onClose,
-  onSuccess,
-}: {
-  mode: ResetMode;
-  onClose: () => void;
-  onSuccess: (mode: string, deletedCounts?: Record<string, number>) => void;
-}) {
-  const [confirmText, setConfirmText] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
+const fieldLabels: Record<string, { label: string; desc: string }> = {
+  leadTimeDays: { label: "Lead Time", desc: "Days for warehouse to store delivery" },
+  safetyDays: { label: "Safety Stock", desc: "Extra buffer days to prevent stockouts" },
+  reviewCycleDays: { label: "Review Cycle", desc: "Days between replenishment reviews" },
+  overstockThresholdDays: { label: "Overstock Threshold", desc: "Days of cover to flag as overstock" },
+  deadStockDays: { label: "Dead Stock", desc: "Days without sale to flag as dead stock" },
+  warehouseBufferQty: { label: "Warehouse Buffer", desc: "Minimum qty to keep in warehouse" },
+  targetCoverDays: { label: "Target Cover", desc: "Target days of cover at destinations" },
+};
 
-  if (!mode) return null;
-
-  const expected = mode === "SOFT" ? "RESET WIZARD" : "DELETE TENANT DATA";
-  const isSoft = mode === "SOFT";
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-        <h3 className={`text-lg font-bold mb-2 ${isSoft ? "text-amber-700" : "text-red-700"}`}>
-          {isSoft ? "Restart Setup Wizard" : "Hard Reset — Delete Tenant Data"}
-        </h3>
-        <div className={`text-sm mb-4 ${isSoft ? "text-gray-600" : "text-red-600"}`}>
-          {isSoft ? (
-            <p>This will reset the wizard to step 1 so you can re-run onboarding. All historical data (orders, inventory, recommendations) will be <strong>preserved</strong>.</p>
-          ) : (
-            <>
-              <p className="mb-2">This will <strong>permanently delete</strong> all tenant operational data:</p>
-              <ul className="list-disc ml-5 space-y-0.5">
-                <li>Orders &amp; order lines</li>
-                <li>Inventory levels &amp; daily sales</li>
-                <li>Products &amp; variants cache</li>
-                <li>Recommendations &amp; AI runs</li>
-                <li>Location mappings &amp; business rules</li>
-                <li>Alerts &amp; notifications</li>
-                <li>OpenAI settings</li>
-              </ul>
-              <p className="mt-2 font-semibold">This action cannot be undone.</p>
-            </>
-          )}
-        </div>
-
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Type <code className="bg-gray-100 px-1 rounded font-bold">{expected}</code> to confirm:
-          </label>
-          <input
-            type="text"
-            value={confirmText}
-            onChange={(e) => { setConfirmText(e.target.value); setError(""); }}
-            className="w-full border rounded px-3 py-2 text-sm"
-            placeholder={expected}
-            autoComplete="off"
-          />
-        </div>
-
-        {error && <div className="text-red-600 text-sm mb-3">{error}</div>}
-
-        <div className="flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            disabled={submitting}
-            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={async () => {
-              if (confirmText !== expected) {
-                setError(`Please type exactly: ${expected}`);
-                return;
-              }
-              setSubmitting(true);
-              setError("");
-              try {
-                const res = await fetch("/api/admin/wizard-reset", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ mode, confirmText }),
-                });
-                const data = await res.json();
-                if (data.ok) {
-                  onSuccess(mode, data.deletedCounts);
-                } else {
-                  setError(data.error || "Reset failed");
-                }
-              } catch {
-                setError("Request failed");
-              } finally {
-                setSubmitting(false);
-              }
-            }}
-            disabled={submitting || confirmText !== expected}
-            className={`px-4 py-2 text-sm text-white rounded font-medium disabled:opacity-50 ${
-              isSoft
-                ? "bg-amber-600 hover:bg-amber-700"
-                : "bg-red-600 hover:bg-red-700"
-            }`}
-          >
-            {submitting ? "Processing..." : isSoft ? "Reset Wizard" : "Delete & Reset"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function SettingsPage() {
+function SettingsContent() {
   const router = useRouter();
-  const [user, setUser] = useState<{ name?: string; email: string; role: string } | null>(null);
-  const [tenant, setTenant] = useState<{ name: string } | null>(null);
+  const { user } = useAppShell();
   const [rules, setRules] = useState({
-    leadTimeDays: 3,
-    safetyDays: 2,
-    reviewCycleDays: 7,
-    overstockThresholdDays: 90,
-    deadStockDays: 180,
-    warehouseBufferQty: 5,
-    targetCoverDays: 30,
+    leadTimeDays: 3, safetyDays: 2, reviewCycleDays: 7,
+    overstockThresholdDays: 90, deadStockDays: 180,
+    warehouseBufferQty: 5, targetCoverDays: 30,
   });
-  const [loading, setLoading] = useState(true);
+  const [originalRules, setOriginalRules] = useState(rules);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
 
-  // OpenAI settings state
+  // OpenAI
   const [aiSettings, setAiSettings] = useState<OpenAiSettingsState>({
-    isEnabled: false,
-    model: "gpt-4o-mini",
-    dailyHourLocal: 7,
-    timezone: "America/Santiago",
-    maxSkus: 150,
-    promptVersion: "v1.0",
-    keyStorageMode: "ENV_ONLY",
-    hasStoredKey: false,
-    apiKeyLast4: null,
+    isEnabled: false, model: "gpt-4o-mini", dailyHourLocal: 7,
+    timezone: "America/Santiago", maxSkus: 150, promptVersion: "v1.0",
+    keyStorageMode: "ENV_ONLY", hasStoredKey: false, apiKeyLast4: null,
   });
   const [encryptionAvailable, setEncryptionAvailable] = useState(false);
   const [envKeyConfigured, setEnvKeyConfigured] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [aiSaving, setAiSaving] = useState(false);
-  const [aiMessage, setAiMessage] = useState("");
   const [testing, setTesting] = useState(false);
   const [runningAi, setRunningAi] = useState(false);
 
-  // Wizard reset state
+  // Wizard
   const [wizardState, setWizardState] = useState<WizardState | null>(null);
   const [resetMode, setResetMode] = useState<ResetMode>(null);
+  const [confirmText, setConfirmText] = useState("");
+  const [resetSubmitting, setResetSubmitting] = useState(false);
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/auth/me").then((r) => r.json()),
       fetch("/api/settings").then((r) => r.json()),
       fetch("/api/admin/openai-settings").then((r) => r.ok ? r.json() : null).catch(() => null),
       fetch("/api/admin/wizard-reset").then((r) => r.ok ? r.json() : null).catch(() => null),
-    ])
-      .then(([auth, data, aiData, wizData]) => {
-        if (auth.error) { router.push("/login"); return; }
-        setUser(auth.user);
-        setTenant(auth.tenant);
-        if (data.globalRule) {
-          setRules({
-            leadTimeDays: data.globalRule.leadTimeDays ?? 3,
-            safetyDays: data.globalRule.safetyDays ?? 2,
-            reviewCycleDays: data.globalRule.reviewCycleDays ?? 7,
-            overstockThresholdDays: data.globalRule.overstockThresholdDays ?? 90,
-            deadStockDays: data.globalRule.deadStockDays ?? 180,
-            warehouseBufferQty: data.globalRule.warehouseBufferQty ?? 5,
-            targetCoverDays: data.globalRule.targetCoverDays ?? 30,
-          });
-        }
-        if (aiData?.settings) {
-          setAiSettings(aiData.settings);
-          setEncryptionAvailable(aiData.encryptionAvailable ?? false);
-          setEnvKeyConfigured(aiData.envKeyConfigured ?? false);
-        }
-        if (wizData) {
-          setWizardState(wizData);
-        }
-      })
-      .catch(() => router.push("/login"))
-      .finally(() => setLoading(false));
-  }, [router]);
+    ]).then(([data, aiData, wizData]) => {
+      if (data.globalRule) {
+        const r = {
+          leadTimeDays: data.globalRule.leadTimeDays ?? 3,
+          safetyDays: data.globalRule.safetyDays ?? 2,
+          reviewCycleDays: data.globalRule.reviewCycleDays ?? 7,
+          overstockThresholdDays: data.globalRule.overstockThresholdDays ?? 90,
+          deadStockDays: data.globalRule.deadStockDays ?? 180,
+          warehouseBufferQty: data.globalRule.warehouseBufferQty ?? 5,
+          targetCoverDays: data.globalRule.targetCoverDays ?? 30,
+        };
+        setRules(r);
+        setOriginalRules(r);
+      }
+      if (aiData?.settings) {
+        setAiSettings(aiData.settings);
+        setEncryptionAvailable(aiData.encryptionAvailable ?? false);
+        setEnvKeyConfigured(aiData.envKeyConfigured ?? false);
+      }
+      if (wizData) setWizardState(wizData);
+    });
+  }, []);
+
+  const rulesChanged = JSON.stringify(rules) !== JSON.stringify(originalRules);
 
   const handleSave = async () => {
     setSaving(true);
-    setMessage("");
     try {
       const res = await fetch("/api/settings", {
         method: "PUT",
@@ -219,69 +117,43 @@ export default function SettingsPage() {
         body: JSON.stringify(rules),
       });
       const data = await res.json();
-      if (data.success) setMessage("Settings saved");
-      else setMessage("Error: " + data.error);
+      if (data.success) {
+        setOriginalRules(rules);
+        toast.success("Thresholds saved");
+      } else {
+        toast.error(data.error || "Failed to save");
+      }
     } catch {
-      setMessage("Failed to save");
+      toast.error("Failed to save");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleExport = () => {
-    window.open("/api/settings/export", "_blank");
-  };
-
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const text = await file.text();
-    try {
-      const config = JSON.parse(text);
-      const res = await fetch("/api/settings/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
-      });
-      const data = await res.json();
-      setMessage(data.message || "Imported");
-    } catch {
-      setMessage("Invalid JSON file");
-    }
-    e.target.value = "";
-  };
-
   const handleRunAnalytics = async () => {
-    setMessage("Running analytics...");
+    toast.info("Running analytics...");
     try {
       const res = await fetch("/api/analytics/run", { method: "POST" });
       const data = await res.json();
       if (data.success) {
-        setMessage(`Analytics complete: ${data.transferCount} transfers, ${data.discountCount} discounts, ${data.reorderFlags} reorder flags`);
+        toast.success(`Analytics complete: ${data.transferCount} transfers, ${data.discountCount} discounts`);
       } else {
-        setMessage("Error: " + data.error);
+        toast.error(data.error);
       }
     } catch {
-      setMessage("Analytics run failed");
+      toast.error("Analytics run failed");
     }
   };
 
   const handleAiSave = async () => {
     setAiSaving(true);
-    setAiMessage("");
     try {
       const payload: Record<string, unknown> = {
-        isEnabled: aiSettings.isEnabled,
-        model: aiSettings.model,
-        dailyHourLocal: aiSettings.dailyHourLocal,
-        timezone: aiSettings.timezone,
-        maxSkus: aiSettings.maxSkus,
-        keyStorageMode: aiSettings.keyStorageMode,
+        isEnabled: aiSettings.isEnabled, model: aiSettings.model,
+        dailyHourLocal: aiSettings.dailyHourLocal, timezone: aiSettings.timezone,
+        maxSkus: aiSettings.maxSkus, keyStorageMode: aiSettings.keyStorageMode,
       };
-      if (apiKeyInput.trim()) {
-        payload.apiKey = apiKeyInput.trim();
-      }
+      if (apiKeyInput.trim()) payload.apiKey = apiKeyInput.trim();
       const res = await fetch("/api/admin/openai-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -291,12 +163,12 @@ export default function SettingsPage() {
       if (data.success) {
         setAiSettings(data.settings);
         setApiKeyInput("");
-        setAiMessage("OpenAI settings saved");
+        toast.success("OpenAI settings saved");
       } else {
-        setAiMessage("Error: " + (data.error || data.details?.join(", ")));
+        toast.error(data.error || data.details?.join(", "));
       }
     } catch {
-      setAiMessage("Failed to save OpenAI settings");
+      toast.error("Failed to save");
     } finally {
       setAiSaving(false);
     }
@@ -304,7 +176,6 @@ export default function SettingsPage() {
 
   const handleRemoveKey = async () => {
     setAiSaving(true);
-    setAiMessage("");
     try {
       const res = await fetch("/api/admin/openai-settings", {
         method: "POST",
@@ -314,12 +185,10 @@ export default function SettingsPage() {
       const data = await res.json();
       if (data.success) {
         setAiSettings(data.settings);
-        setAiMessage("Stored API key removed");
-      } else {
-        setAiMessage("Error: " + data.error);
+        toast.success("Stored API key removed");
       }
     } catch {
-      setAiMessage("Failed to remove key");
+      toast.error("Failed to remove key");
     } finally {
       setAiSaving(false);
     }
@@ -327,13 +196,13 @@ export default function SettingsPage() {
 
   const handleTestConnection = async () => {
     setTesting(true);
-    setAiMessage("");
     try {
       const res = await fetch("/api/admin/openai-test", { method: "POST" });
       const data = await res.json();
-      setAiMessage(data.success ? data.message : "Test failed: " + data.message);
+      if (data.success) toast.success(data.message);
+      else toast.error(data.message);
     } catch {
-      setAiMessage("Connection test failed");
+      toast.error("Connection test failed");
     } finally {
       setTesting(false);
     }
@@ -341,357 +210,391 @@ export default function SettingsPage() {
 
   const handleRunAiNow = async () => {
     setRunningAi(true);
-    setAiMessage("Running AI analysis...");
+    toast.info("Running AI analysis...");
     try {
       const res = await fetch("/api/admin/openai-run", { method: "POST" });
       const data = await res.json();
-      if (data.success) {
-        setAiMessage(`AI analysis complete: ${data.run.status}. View results in AI Insights.`);
-      } else {
-        setAiMessage("Error: " + data.error);
-      }
+      if (data.success) toast.success(`AI analysis: ${data.run.status}`);
+      else toast.error(data.error);
     } catch {
-      setAiMessage("AI run failed");
+      toast.error("AI run failed");
     } finally {
       setRunningAi(false);
     }
   };
 
-  if (loading || !user || !tenant) {
-    return <div className="flex items-center justify-center min-h-screen text-gray-500">Loading...</div>;
-  }
-
-  const fieldLabels: Record<string, string> = {
-    leadTimeDays: "Lead Time (days) - warehouse to store",
-    safetyDays: "Safety Stock (days)",
-    reviewCycleDays: "Review Cycle (days)",
-    overstockThresholdDays: "Overstock Threshold (days of cover)",
-    deadStockDays: "Dead Stock (days without sale)",
-    warehouseBufferQty: "Warehouse Buffer (qty to keep)",
-    targetCoverDays: "Target Days of Cover",
+  const handleReset = async () => {
+    if (!resetMode) return;
+    const expected = resetMode === "SOFT" ? "RESET WIZARD" : "DELETE TENANT DATA";
+    if (confirmText !== expected) return;
+    setResetSubmitting(true);
+    try {
+      const res = await fetch("/api/admin/wizard-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: resetMode, confirmText }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast.success(resetMode === "SOFT" ? "Wizard reset" : "Data deleted. Redirecting...");
+        setResetMode(null);
+        setConfirmText("");
+        setTimeout(() => router.push("/wizard"), 1500);
+      } else {
+        toast.error(data.error || "Reset failed");
+      }
+    } catch {
+      toast.error("Request failed");
+    } finally {
+      setResetSubmitting(false);
+    }
   };
 
+  const isAdmin = user.role === "ADMIN";
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Nav user={user} tenant={tenant} />
-      <div className="max-w-4xl mx-auto p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Settings</h1>
+    <div className="space-y-6 max-w-3xl">
+      <PageHeader title="Settings" subtitle="Configure replenishment thresholds and integrations" />
 
-        {message && (
-          <div className="bg-blue-50 text-blue-700 p-3 rounded text-sm mb-4">{message}</div>
-        )}
-
-        {/* Global Thresholds */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">Global Thresholds</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Global Thresholds */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Settings className="h-4 w-4" />
+            Replenishment Thresholds
+          </CardTitle>
+          <CardDescription>
+            Global parameters for inventory analysis. SKU-specific overrides can be set separately.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {Object.entries(rules).map(([key, val]) => (
-              <div key={key}>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {fieldLabels[key] || key}
-                </label>
-                <input
+              <div key={key} className="space-y-1.5">
+                <Label htmlFor={key} className="text-sm">
+                  {fieldLabels[key]?.label || key}
+                </Label>
+                <Input
+                  id={key}
                   type="number"
                   value={val}
                   onChange={(e) => setRules({ ...rules, [key]: parseInt(e.target.value) || 0 })}
-                  className="w-full border rounded px-3 py-2 text-sm"
-                  disabled={user.role !== "ADMIN"}
+                  disabled={!isAdmin}
+                  className="h-9"
                 />
+                <p className="text-xs text-muted-foreground">{fieldLabels[key]?.desc}</p>
               </div>
             ))}
           </div>
-          {user.role === "ADMIN" && (
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="mt-4 bg-emerald-600 text-white px-6 py-2 rounded font-medium hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {saving ? "Saving..." : "Save Thresholds"}
-            </button>
+          {isAdmin && (
+            <div className="flex items-center gap-3 pt-2">
+              <Button onClick={handleSave} disabled={saving || !rulesChanged} size="sm">
+                {saving ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
+                Save Thresholds
+              </Button>
+              {!rulesChanged && <span className="text-xs text-muted-foreground">No changes</span>}
+            </div>
           )}
-        </div>
+        </CardContent>
+      </Card>
 
-        {/* Actions */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">Actions</h2>
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={handleRunAnalytics}
-              className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700"
-            >
-              Run Analytics Now
-            </button>
-            <button
-              onClick={handleExport}
-              className="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700"
-            >
-              Export Config JSON
-            </button>
-            <label className="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700 cursor-pointer">
-              Import Config JSON
-              <input type="file" accept=".json" onChange={handleImport} className="hidden" />
-            </label>
-          </div>
-        </div>
-
-        {/* OpenAI Settings — ADMIN only */}
-        {user.role === "ADMIN" && (
-          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-            <h2 className="text-lg font-semibold mb-4">OpenAI Configuration</h2>
-
-            {aiMessage && (
-              <div className={`p-3 rounded text-sm mb-4 ${aiMessage.startsWith("Error") || aiMessage.includes("failed") || aiMessage.includes("Failed") ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>
-                {aiMessage}
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Enable toggle */}
-              <div className="md:col-span-2">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <div
-                    className={`relative w-11 h-6 rounded-full transition-colors ${aiSettings.isEnabled ? "bg-emerald-500" : "bg-gray-300"}`}
-                    onClick={() => setAiSettings({ ...aiSettings, isEnabled: !aiSettings.isEnabled })}
-                  >
-                    <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${aiSettings.isEnabled ? "translate-x-5.5 left-[1.375rem]" : "left-0.5"}`} />
-                  </div>
-                  <span className="text-sm font-medium text-gray-700">Enable OpenAI Daily Insights</span>
-                </label>
-              </div>
-
-              {/* Model */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Model</label>
-                <select
-                  value={aiSettings.model}
-                  onChange={(e) => setAiSettings({ ...aiSettings, model: e.target.value })}
-                  className="w-full border rounded px-3 py-2 text-sm"
-                >
-                  <option value="gpt-4o-mini">gpt-4o-mini</option>
-                  <option value="gpt-4o">gpt-4o</option>
-                  <option value="gpt-4-turbo">gpt-4-turbo</option>
-                  <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
-                </select>
-              </div>
-
-              {/* Daily hour */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Daily Run Hour (0-23)</label>
+      {/* Actions */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Zap className="h-4 w-4" />
+            Actions
+          </CardTitle>
+          <CardDescription>Run analytics or export/import configuration.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={handleRunAnalytics}>
+              <Play className="h-3.5 w-3.5 mr-1" /> Run Analytics
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => window.open("/api/settings/export", "_blank")}>
+              <Download className="h-3.5 w-3.5 mr-1" /> Export Config
+            </Button>
+            <Button size="sm" variant="outline" asChild>
+              <label className="cursor-pointer">
+                <Upload className="h-3.5 w-3.5 mr-1" /> Import Config
                 <input
-                  type="number"
-                  min={0}
-                  max={23}
+                  type="file"
+                  accept=".json"
+                  className="sr-only"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      const text = await file.text();
+                      const config = JSON.parse(text);
+                      const res = await fetch("/api/settings/import", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(config),
+                      });
+                      const data = await res.json();
+                      toast.success(data.message || "Imported");
+                    } catch {
+                      toast.error("Invalid JSON file");
+                    }
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* OpenAI Settings */}
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Brain className="h-4 w-4" />
+              OpenAI Configuration
+            </CardTitle>
+            <CardDescription>Configure AI-powered daily inventory insights.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Enable toggle */}
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="aiEnabled"
+                checked={aiSettings.isEnabled}
+                onCheckedChange={(v) => setAiSettings({ ...aiSettings, isEnabled: v === true })}
+              />
+              <Label htmlFor="aiEnabled" className="cursor-pointer">Enable OpenAI Daily Insights</Label>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Model</Label>
+                <Select value={aiSettings.model} onValueChange={(v) => setAiSettings({ ...aiSettings, model: v })}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gpt-4o-mini">gpt-4o-mini</SelectItem>
+                    <SelectItem value="gpt-4o">gpt-4o</SelectItem>
+                    <SelectItem value="gpt-4-turbo">gpt-4-turbo</SelectItem>
+                    <SelectItem value="gpt-3.5-turbo">gpt-3.5-turbo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Daily Run Hour (0-23)</Label>
+                <Input
+                  type="number" min={0} max={23}
                   value={aiSettings.dailyHourLocal}
                   onChange={(e) => setAiSettings({ ...aiSettings, dailyHourLocal: parseInt(e.target.value) || 0 })}
-                  className="w-full border rounded px-3 py-2 text-sm"
+                  className="h-9"
                 />
               </div>
-
-              {/* Timezone */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
-                <input
-                  type="text"
+              <div className="space-y-1.5">
+                <Label>Timezone</Label>
+                <Input
                   value={aiSettings.timezone}
                   onChange={(e) => setAiSettings({ ...aiSettings, timezone: e.target.value })}
-                  className="w-full border rounded px-3 py-2 text-sm"
                   placeholder="America/Santiago"
+                  className="h-9"
                 />
               </div>
-
-              {/* Max SKUs */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Max SKUs per Run</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={1000}
+              <div className="space-y-1.5">
+                <Label>Max SKUs per Run</Label>
+                <Input
+                  type="number" min={1} max={1000}
                   value={aiSettings.maxSkus}
                   onChange={(e) => setAiSettings({ ...aiSettings, maxSkus: parseInt(e.target.value) || 150 })}
-                  className="w-full border rounded px-3 py-2 text-sm"
-                />
-              </div>
-
-              {/* Prompt version (read-only) */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Prompt Version</label>
-                <input
-                  type="text"
-                  value={aiSettings.promptVersion}
-                  readOnly
-                  className="w-full border rounded px-3 py-2 text-sm bg-gray-50 text-gray-500"
+                  className="h-9"
                 />
               </div>
             </div>
+
+            <Separator />
 
             {/* API Key Management */}
-            <div className="mt-6 border-t pt-4">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">API Key Management</h3>
-
-              <div className="flex gap-4 mb-3">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="keyStorageMode"
-                    checked={aiSettings.keyStorageMode === "ENV_ONLY"}
-                    onChange={() => setAiSettings({ ...aiSettings, keyStorageMode: "ENV_ONLY" })}
-                    className="text-emerald-600"
-                  />
-                  <span className="text-sm text-gray-700">Manage key via Environment Variable</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="keyStorageMode"
-                    checked={aiSettings.keyStorageMode === "DB_ENCRYPTED"}
-                    onChange={() => setAiSettings({ ...aiSettings, keyStorageMode: "DB_ENCRYPTED" })}
-                    disabled={!encryptionAvailable}
-                    className="text-emerald-600"
-                  />
-                  <span className={`text-sm ${encryptionAvailable ? "text-gray-700" : "text-gray-400"}`}>
-                    Store key encrypted in app
-                    {!encryptionAvailable && " (set APP_ENCRYPTION_KEY first)"}
-                  </span>
-                </label>
-              </div>
-
-              {aiSettings.keyStorageMode === "ENV_ONLY" && (
-                <div className="bg-gray-50 p-3 rounded text-sm text-gray-600">
-                  Set <code className="bg-gray-200 px-1 rounded">OPENAI_API_KEY</code> in your Replit Secrets or <code className="bg-gray-200 px-1 rounded">.env</code> file.
-                  {envKeyConfigured && (
-                    <span className="ml-2 text-emerald-600 font-medium">Environment key is configured.</span>
-                  )}
-                  {!envKeyConfigured && (
-                    <span className="ml-2 text-amber-600 font-medium">No environment key detected.</span>
-                  )}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold flex items-center gap-1.5">
+                <Shield className="h-3.5 w-3.5" /> API Key Management
+              </h3>
+              <RadioGroup
+                value={aiSettings.keyStorageMode}
+                onValueChange={(v) => setAiSettings({ ...aiSettings, keyStorageMode: v as "ENV_ONLY" | "DB_ENCRYPTED" })}
+                className="space-y-2"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="ENV_ONLY" id="envOnly" />
+                  <Label htmlFor="envOnly" className="cursor-pointer text-sm">
+                    Environment Variable
+                    {envKeyConfigured ? (
+                      <Badge variant="outline" className="ml-2 text-xs text-emerald-600">Configured</Badge>
+                    ) : (
+                      <Badge variant="outline" className="ml-2 text-xs text-amber-600">Not set</Badge>
+                    )}
+                  </Label>
                 </div>
-              )}
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="DB_ENCRYPTED" id="dbEncrypted" disabled={!encryptionAvailable} />
+                  <Label htmlFor="dbEncrypted" className={`cursor-pointer text-sm ${!encryptionAvailable ? "text-muted-foreground" : ""}`}>
+                    Store encrypted in app
+                    {!encryptionAvailable && <span className="text-xs ml-1">(set APP_ENCRYPTION_KEY)</span>}
+                  </Label>
+                </div>
+              </RadioGroup>
 
               {aiSettings.keyStorageMode === "DB_ENCRYPTED" && (
-                <div className="space-y-3">
+                <div className="space-y-2 pl-6">
                   {aiSettings.hasStoredKey && (
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-emerald-600 font-medium">
-                        Key stored (last 4: {aiSettings.apiKeyLast4 || "****"})
-                      </span>
-                      <button
-                        onClick={handleRemoveKey}
-                        className="text-xs text-red-600 hover:text-red-800 underline"
-                        disabled={aiSaving}
-                      >
-                        Remove stored key
-                      </button>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-emerald-600">
+                        Key stored (****{aiSettings.apiKeyLast4})
+                      </Badge>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive" onClick={handleRemoveKey} disabled={aiSaving}>
+                        Remove
+                      </Button>
                     </div>
                   )}
-                  <div>
-                    <label className="block text-sm text-gray-600 mb-1">
-                      {aiSettings.hasStoredKey ? "Replace API Key" : "Paste API Key"}
-                    </label>
-                    <input
-                      type="password"
-                      value={apiKeyInput}
-                      onChange={(e) => setApiKeyInput(e.target.value)}
-                      placeholder="sk-..."
-                      className="w-full max-w-md border rounded px-3 py-2 text-sm"
-                      autoComplete="off"
-                    />
-                  </div>
+                  <Input
+                    type="password"
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    placeholder="sk-..."
+                    className="h-9 max-w-md"
+                    autoComplete="off"
+                  />
                 </div>
               )}
             </div>
 
-            {/* Action buttons */}
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                onClick={handleAiSave}
-                disabled={aiSaving}
-                className="bg-emerald-600 text-white px-6 py-2 rounded font-medium hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {aiSaving ? "Saving..." : "Save OpenAI Settings"}
-              </button>
-              <button
-                onClick={handleTestConnection}
-                disabled={testing}
-                className="bg-indigo-600 text-white px-4 py-2 rounded text-sm hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {testing ? "Testing..." : "Test OpenAI Connection"}
-              </button>
-              <button
-                onClick={handleRunAiNow}
-                disabled={runningAi}
-                className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-              >
-                {runningAi ? "Running..." : "Run AI Analysis Now"}
-              </button>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button size="sm" onClick={handleAiSave} disabled={aiSaving}>
+                {aiSaving ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
+                Save OpenAI Settings
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleTestConnection} disabled={testing}>
+                {testing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Zap className="h-3.5 w-3.5 mr-1" />}
+                Test Connection
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleRunAiNow} disabled={runningAi}>
+                {runningAi ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1" />}
+                Run AI Now
+              </Button>
             </div>
-          </div>
-        )}
+          </CardContent>
+        </Card>
+      )}
 
-        {/* Setup Wizard — ADMIN only */}
-        {user.role === "ADMIN" && (
-          <div className="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
-            <h2 className="text-lg font-semibold mb-4">Setup Wizard</h2>
-
+      {/* Setup Wizard */}
+      {isAdmin && (
+        <Card className="border-amber-200">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <RotateCcw className="h-4 w-4" />
+              Setup Wizard
+            </CardTitle>
+            <CardDescription>Reset your onboarding wizard to reconfigure locations and thresholds.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
             {wizardState && (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-5">
+              <div className="flex items-center gap-4 text-sm">
                 <div>
-                  <span className="text-xs text-gray-500 uppercase tracking-wide">Status</span>
-                  <p className={`text-sm font-medium ${wizardState.wizardComplete ? "text-emerald-600" : "text-amber-600"}`}>
+                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Status</span>
+                  <p className={`font-medium ${wizardState.wizardComplete ? "text-emerald-600" : "text-amber-600"}`}>
                     {wizardState.wizardComplete ? "Configured" : "Not configured"}
                   </p>
                 </div>
+                <Separator orientation="vertical" className="h-8" />
                 <div>
-                  <span className="text-xs text-gray-500 uppercase tracking-wide">Current Step</span>
-                  <p className="text-sm font-medium text-gray-900">{wizardState.wizardStep} / 4</p>
+                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Step</span>
+                  <p className="font-medium">{wizardState.wizardStep} / 4</p>
                 </div>
                 {wizardState.lastUpdated && (
-                  <div>
-                    <span className="text-xs text-gray-500 uppercase tracking-wide">Last Updated</span>
-                    <p className="text-sm font-medium text-gray-900">
-                      {new Date(wizardState.lastUpdated).toLocaleDateString()}
-                    </p>
-                  </div>
+                  <>
+                    <Separator orientation="vertical" className="h-8" />
+                    <div>
+                      <span className="text-xs text-muted-foreground uppercase tracking-wide">Updated</span>
+                      <p className="font-medium">{new Date(wizardState.lastUpdated).toLocaleDateString()}</p>
+                    </div>
+                  </>
                 )}
               </div>
             )}
 
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={() => setResetMode("SOFT")}
-                className="bg-amber-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-amber-700"
-              >
-                Restart Wizard (Soft Reset)
-              </button>
-              <button
-                onClick={() => setResetMode("HARD")}
-                className="bg-red-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-red-700"
-              >
-                Reset &amp; Remove Tenant Data (Hard Reset)
-              </button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setResetMode("SOFT")}>
+                <RotateCcw className="h-3.5 w-3.5 mr-1" /> Soft Reset
+              </Button>
+              <Button size="sm" variant="destructive" onClick={() => setResetMode("HARD")}>
+                <Trash2 className="h-3.5 w-3.5 mr-1" /> Hard Reset
+              </Button>
             </div>
-
-            <p className="text-xs text-gray-400 mt-3">
-              Soft reset re-runs the wizard keeping historical data. Hard reset purges all tenant data for a clean start.
+            <p className="text-xs text-muted-foreground">
+              Soft reset re-runs the wizard keeping data. Hard reset deletes all tenant data.
             </p>
-          </div>
-        )}
+          </CardContent>
+        </Card>
+      )}
 
-        {/* Reset Confirmation Modal */}
-        <ResetModal
-          mode={resetMode}
-          onClose={() => setResetMode(null)}
-          onSuccess={(mode, deletedCounts) => {
-            setResetMode(null);
-            if (mode === "HARD" && deletedCounts) {
-              const total = Object.values(deletedCounts).reduce((a, b) => a + b, 0);
-              setMessage(`Hard reset complete. ${total} records deleted. Redirecting to wizard...`);
-            } else {
-              setMessage("Wizard reset. Redirecting to wizard...");
-            }
-            setTimeout(() => router.push("/wizard"), 1500);
-          }}
-        />
-      </div>
+      {/* Reset Dialog */}
+      <Dialog open={!!resetMode} onOpenChange={(open) => { if (!open) { setResetMode(null); setConfirmText(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className={resetMode === "HARD" ? "text-destructive" : "text-amber-600"}>
+              {resetMode === "SOFT" ? "Restart Setup Wizard" : "Hard Reset — Delete Tenant Data"}
+            </DialogTitle>
+            <DialogDescription>
+              {resetMode === "SOFT" ? (
+                "This resets the wizard to step 1. All historical data will be preserved."
+              ) : (
+                "This will permanently delete all tenant operational data. This cannot be undone."
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          {resetMode === "HARD" && (
+            <ul className="text-sm text-destructive list-disc ml-5 space-y-0.5">
+              <li>Orders & order lines</li>
+              <li>Inventory levels & daily sales</li>
+              <li>Products & variants</li>
+              <li>Recommendations & AI runs</li>
+              <li>Location mappings & rules</li>
+            </ul>
+          )}
+          <div className="space-y-2">
+            <Label>
+              Type <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-bold">
+                {resetMode === "SOFT" ? "RESET WIZARD" : "DELETE TENANT DATA"}
+              </code> to confirm
+            </Label>
+            <Input
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder={resetMode === "SOFT" ? "RESET WIZARD" : "DELETE TENANT DATA"}
+              autoComplete="off"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setResetMode(null); setConfirmText(""); }} disabled={resetSubmitting}>
+              Cancel
+            </Button>
+            <Button
+              variant={resetMode === "HARD" ? "destructive" : "default"}
+              onClick={handleReset}
+              disabled={resetSubmitting || confirmText !== (resetMode === "SOFT" ? "RESET WIZARD" : "DELETE TENANT DATA")}
+            >
+              {resetSubmitting ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
+              {resetMode === "SOFT" ? "Reset Wizard" : "Delete & Reset"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <AppShell>
+      <SettingsContent />
+    </AppShell>
   );
 }

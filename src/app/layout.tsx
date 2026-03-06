@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { initCron } from "@/lib/cron";
+import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
   title: "Adagio Replenishment",
@@ -15,8 +16,9 @@ if (typeof window === "undefined") {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="bg-gray-50 min-h-screen">
+      <body>
         {children}
+        <Toaster position="top-right" richColors />
       </body>
     </html>
   );
