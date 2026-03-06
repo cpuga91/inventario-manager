@@ -33,6 +33,7 @@ model Tenant {
   syncCursors     SyncCursor[]
   aiRuns          AiRun[]
   openAiSettings  OpenAiSettings?
+  auditLogs       AuditLog[]
 
   @@map("tenants")
 }
@@ -52,7 +53,8 @@ model User {
   role      UserRole @default(STORE_VIEW)
   createdAt DateTime @default(now()) @map("created_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  auditLogs AuditLog[]
 
   @@unique([tenantId, email])
   @@map("users")
@@ -334,6 +336,21 @@ model OpenAiSettings {
 enum AiRunStatus {
   SUCCESS
   FAILED
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  actorUserId String   @map("actor_user_id")
+  action      String
+  detailsJson String?  @map("details_json") @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actor  User   @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, action])
+  @@map("audit_logs")
 }
 
 model AiRun {

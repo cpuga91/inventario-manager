@@ -16,6 +16,123 @@ interface OpenAiSettingsState {
   apiKeyLast4: string | null;
 }
 
+interface WizardState {
+  wizardStep: number;
+  wizardComplete: boolean;
+  lastUpdated: string | null;
+}
+
+type ResetMode = "SOFT" | "HARD" | null;
+
+function ResetModal({
+  mode,
+  onClose,
+  onSuccess,
+}: {
+  mode: ResetMode;
+  onClose: () => void;
+  onSuccess: (mode: string, deletedCounts?: Record<string, number>) => void;
+}) {
+  const [confirmText, setConfirmText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  if (!mode) return null;
+
+  const expected = mode === "SOFT" ? "RESET WIZARD" : "DELETE TENANT DATA";
+  const isSoft = mode === "SOFT";
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+        <h3 className={`text-lg font-bold mb-2 ${isSoft ? "text-amber-700" : "text-red-700"}`}>
+          {isSoft ? "Restart Setup Wizard" : "Hard Reset — Delete Tenant Data"}
+        </h3>
+        <div className={`text-sm mb-4 ${isSoft ? "text-gray-600" : "text-red-600"}`}>
+          {isSoft ? (
+            <p>This will reset the wizard to step 1 so you can re-run onboarding. All historical data (orders, inventory, recommendations) will be <strong>preserved</strong>.</p>
+          ) : (
+            <>
+              <p className="mb-2">This will <strong>permanently delete</strong> all tenant operational data:</p>
+              <ul className="list-disc ml-5 space-y-0.5">
+                <li>Orders &amp; order lines</li>
+                <li>Inventory levels &amp; daily sales</li>
+                <li>Products &amp; variants cache</li>
+                <li>Recommendations &amp; AI runs</li>
+                <li>Location mappings &amp; business rules</li>
+                <li>Alerts &amp; notifications</li>
+                <li>OpenAI settings</li>
+              </ul>
+              <p className="mt-2 font-semibold">This action cannot be undone.</p>
+            </>
+          )}
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Type <code className="bg-gray-100 px-1 rounded font-bold">{expected}</code> to confirm:
+          </label>
+          <input
+            type="text"
+            value={confirmText}
+            onChange={(e) => { setConfirmText(e.target.value); setError(""); }}
+            className="w-full border rounded px-3 py-2 text-sm"
+            placeholder={expected}
+            autoComplete="off"
+          />
+        </div>
+
+        {error && <div className="text-red-600 text-sm mb-3">{error}</div>}
+
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={async () => {
+              if (confirmText !== expected) {
+                setError(`Please type exactly: ${expected}`);
+                return;
+              }
+              setSubmitting(true);
+              setError("");
+              try {
+                const res = await fetch("/api/admin/wizard-reset", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ mode, confirmText }),
+                });
+                const data = await res.json();
+                if (data.ok) {
+                  onSuccess(mode, data.deletedCounts);
+                } else {
+                  setError(data.error || "Reset failed");
+                }
+              } catch {
+                setError("Request failed");
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+            disabled={submitting || confirmText !== expected}
+            className={`px-4 py-2 text-sm text-white rounded font-medium disabled:opacity-50 ${
+              isSoft
+                ? "bg-amber-600 hover:bg-amber-700"
+                : "bg-red-600 hover:bg-red-700"
+            }`}
+          >
+            {submitting ? "Processing..." : isSoft ? "Reset Wizard" : "Delete & Reset"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const router = useRouter();
   const [user, setUser] = useState<{ name?: string; email: string; role: string } | null>(null);
@@ -53,13 +170,18 @@ export default function SettingsPage() {
   const [testing, setTesting] = useState(false);
   const [runningAi, setRunningAi] = useState(false);
 
+  // Wizard reset state
+  const [wizardState, setWizardState] = useState<WizardState | null>(null);
+  const [resetMode, setResetMode] = useState<ResetMode>(null);
+
   useEffect(() => {
     Promise.all([
       fetch("/api/auth/me").then((r) => r.json()),
       fetch("/api/settings").then((r) => r.json()),
       fetch("/api/admin/openai-settings").then((r) => r.ok ? r.json() : null).catch(() => null),
+      fetch("/api/admin/wizard-reset").then((r) => r.ok ? r.json() : null).catch(() => null),
     ])
-      .then(([auth, data, aiData]) => {
+      .then(([auth, data, aiData, wizData]) => {
         if (auth.error) { router.push("/login"); return; }
         setUser(auth.user);
         setTenant(auth.tenant);
@@ -78,6 +200,9 @@ export default function SettingsPage() {
           setAiSettings(aiData.settings);
           setEncryptionAvailable(aiData.encryptionAvailable ?? false);
           setEnvKeyConfigured(aiData.envKeyConfigured ?? false);
+        }
+        if (wizData) {
+          setWizardState(wizData);
         }
       })
       .catch(() => router.push("/login"))
@@ -501,6 +626,71 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
+
+        {/* Setup Wizard — ADMIN only */}
+        {user.role === "ADMIN" && (
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
+            <h2 className="text-lg font-semibold mb-4">Setup Wizard</h2>
+
+            {wizardState && (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-5">
+                <div>
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Status</span>
+                  <p className={`text-sm font-medium ${wizardState.wizardComplete ? "text-emerald-600" : "text-amber-600"}`}>
+                    {wizardState.wizardComplete ? "Configured" : "Not configured"}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Current Step</span>
+                  <p className="text-sm font-medium text-gray-900">{wizardState.wizardStep} / 4</p>
+                </div>
+                {wizardState.lastUpdated && (
+                  <div>
+                    <span className="text-xs text-gray-500 uppercase tracking-wide">Last Updated</span>
+                    <p className="text-sm font-medium text-gray-900">
+                      {new Date(wizardState.lastUpdated).toLocaleDateString()}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => setResetMode("SOFT")}
+                className="bg-amber-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-amber-700"
+              >
+                Restart Wizard (Soft Reset)
+              </button>
+              <button
+                onClick={() => setResetMode("HARD")}
+                className="bg-red-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-red-700"
+              >
+                Reset &amp; Remove Tenant Data (Hard Reset)
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-400 mt-3">
+              Soft reset re-runs the wizard keeping historical data. Hard reset purges all tenant data for a clean start.
+            </p>
+          </div>
+        )}
+
+        {/* Reset Confirmation Modal */}
+        <ResetModal
+          mode={resetMode}
+          onClose={() => setResetMode(null)}
+          onSuccess={(mode, deletedCounts) => {
+            setResetMode(null);
+            if (mode === "HARD" && deletedCounts) {
+              const total = Object.values(deletedCounts).reduce((a, b) => a + b, 0);
+              setMessage(`Hard reset complete. ${total} records deleted. Redirecting to wizard...`);
+            } else {
+              setMessage("Wizard reset. Redirecting to wizard...");
+            }
+            setTimeout(() => router.push("/wizard"), 1500);
+          }}
+        />
       </div>
     </div>
   );
