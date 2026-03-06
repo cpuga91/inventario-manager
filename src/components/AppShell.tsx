@@ -17,6 +17,7 @@ import {
   Search,
   Menu,
   Package,
+  BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +64,7 @@ const navItems = [
   { href: "/cogs", label: "COGS", icon: DollarSign },
   { href: "/ai-insights", label: "AI Insights", icon: Brain },
   { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/docs", label: "Docs", icon: BookOpen },
 ];
 
 function SidebarContent({
