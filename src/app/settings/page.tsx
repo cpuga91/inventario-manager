@@ -452,7 +452,7 @@ function SettingsContent() {
                         Key stored (****{aiSettings.apiKeyLast4})
                       </Badge>
                       <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive" onClick={handleRemoveKey} disabled={aiSaving}>
-                        Remove
+                        {t("settings.remove")}
                       </Button>
                     </div>
                   )}
@@ -492,29 +492,29 @@ function SettingsContent() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <RotateCcw className="h-4 w-4" />
-              Setup Wizard
+              {t("settings.setupWizard")}
             </CardTitle>
-            <CardDescription>Reset your onboarding wizard to reconfigure locations and thresholds.</CardDescription>
+            <CardDescription>{t("settings.wizardDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {wizardState && (
               <div className="flex items-center gap-4 text-sm">
                 <div>
-                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Status</span>
+                  <span className="text-xs text-muted-foreground uppercase tracking-wide">{t("settings.statusLabel")}</span>
                   <p className={`font-medium ${wizardState.wizardComplete ? "text-emerald-600" : "text-amber-600"}`}>
-                    {wizardState.wizardComplete ? "Configured" : "Not configured"}
+                    {wizardState.wizardComplete ? t("settings.configured") : t("settings.notConfigured")}
                   </p>
                 </div>
                 <Separator orientation="vertical" className="h-8" />
                 <div>
-                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Step</span>
+                  <span className="text-xs text-muted-foreground uppercase tracking-wide">{t("settings.step")}</span>
                   <p className="font-medium">{wizardState.wizardStep} / 4</p>
                 </div>
                 {wizardState.lastUpdated && (
                   <>
                     <Separator orientation="vertical" className="h-8" />
                     <div>
-                      <span className="text-xs text-muted-foreground uppercase tracking-wide">Updated</span>
+                      <span className="text-xs text-muted-foreground uppercase tracking-wide">{t("settings.updated")}</span>
                       <p className="font-medium">{new Date(wizardState.lastUpdated).toLocaleDateString()}</p>
                     </div>
                   </>
@@ -524,14 +524,14 @@ function SettingsContent() {
 
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => setResetMode("SOFT")}>
-                <RotateCcw className="h-3.5 w-3.5 mr-1" /> Soft Reset
+                <RotateCcw className="h-3.5 w-3.5 mr-1" /> {t("settings.softReset")}
               </Button>
               <Button size="sm" variant="destructive" onClick={() => setResetMode("HARD")}>
-                <Trash2 className="h-3.5 w-3.5 mr-1" /> Hard Reset
+                <Trash2 className="h-3.5 w-3.5 mr-1" /> {t("settings.hardReset")}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Soft reset re-runs the wizard keeping data. Hard reset deletes all tenant data.
+              {t("settings.resetDesc")}
             </p>
           </CardContent>
         </Card>
@@ -542,30 +542,30 @@ function SettingsContent() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className={resetMode === "HARD" ? "text-destructive" : "text-amber-600"}>
-              {resetMode === "SOFT" ? "Restart Setup Wizard" : "Hard Reset — Delete Tenant Data"}
+              {resetMode === "SOFT" ? t("settings.restartWizard") : t("settings.hardResetTitle")}
             </DialogTitle>
             <DialogDescription>
               {resetMode === "SOFT" ? (
-                "This resets the wizard to step 1. All historical data will be preserved."
+                t("settings.softResetDesc")
               ) : (
-                "This will permanently delete all tenant operational data. This cannot be undone."
+                t("settings.hardResetDesc")
               )}
             </DialogDescription>
           </DialogHeader>
           {resetMode === "HARD" && (
             <ul className="text-sm text-destructive list-disc ml-5 space-y-0.5">
-              <li>Orders & order lines</li>
-              <li>Inventory levels & daily sales</li>
-              <li>Products & variants</li>
-              <li>Recommendations & AI runs</li>
-              <li>Location mappings & rules</li>
+              <li>{t("settings.ordersLines")}</li>
+              <li>{t("settings.inventoryDaily")}</li>
+              <li>{t("settings.productsVariants")}</li>
+              <li>{t("settings.recsAi")}</li>
+              <li>{t("settings.locationRules")}</li>
             </ul>
           )}
           <div className="space-y-2">
             <Label>
-              Type <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-bold">
+              {t("settings.type")} <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-bold">
                 {resetMode === "SOFT" ? "RESET WIZARD" : "DELETE TENANT DATA"}
-              </code> to confirm
+              </code> {t("settings.typeToConfirm")}
             </Label>
             <Input
               value={confirmText}
@@ -576,7 +576,7 @@ function SettingsContent() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setResetMode(null); setConfirmText(""); }} disabled={resetSubmitting}>
-              Cancel
+              {t("settings.cancel")}
             </Button>
             <Button
               variant={resetMode === "HARD" ? "destructive" : "default"}
@@ -584,7 +584,7 @@ function SettingsContent() {
               disabled={resetSubmitting || confirmText !== (resetMode === "SOFT" ? "RESET WIZARD" : "DELETE TENANT DATA")}
             >
               {resetSubmitting ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
-              {resetMode === "SOFT" ? "Reset Wizard" : "Delete & Reset"}
+              {resetMode === "SOFT" ? t("settings.resetWizardBtn") : t("settings.deleteReset")}
             </Button>
           </DialogFooter>
         </DialogContent>
