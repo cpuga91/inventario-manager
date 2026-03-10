@@ -16,6 +16,7 @@ import {
   Loader2, ChevronDown, ChevronRight, Lightbulb, Activity,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useI18n } from "@/lib/i18n";
 
 interface AiRun {
   id: string; runDate: string; status: "SUCCESS" | "FAILED"; model: string;
@@ -61,6 +62,7 @@ function AiInsightsContent() {
   const [running, setRunning] = useState(false);
   const [anomaliesOpen, setAnomaliesOpen] = useState(false);
   const [paramsOpen, setParamsOpen] = useState(false);
+  const { t } = useI18n();
 
   const fetchData = useCallback(async () => {
     try {
@@ -69,7 +71,7 @@ function AiInsightsContent() {
       setRun(data.run);
       setInsights(data.insights);
     } catch {
-      toast.error("Failed to load AI data");
+      toast.error(t("ai.failedLoad"));
     } finally {
       setLoading(false);
     }
@@ -87,10 +89,10 @@ function AiInsightsContent() {
       } else {
         setRun(data.run);
         setInsights(data.insights);
-        toast.success("AI analysis complete");
+        toast.success(t("ai.analysisComplete"));
       }
     } catch {
-      toast.error("Failed to run AI analysis");
+      toast.error(t("ai.failedRun"));
     } finally {
       setRunning(false);
     }
@@ -104,7 +106,7 @@ function AiInsightsContent() {
       body: JSON.stringify({ runId: run.id }),
     });
     setRun({ ...run, reviewed: true });
-    toast.success("Marked as reviewed");
+    toast.success(t("ai.markedReviewed"));
   };
 
   if (loading) return (
@@ -117,18 +119,18 @@ function AiInsightsContent() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="AI Insights" subtitle="AI-powered inventory analysis and recommendations">
+      <PageHeader title={t("ai.title")} subtitle={t("ai.subtitle")}>
         <div className="flex items-center gap-2">
           {run && !run.reviewed && run.status === "SUCCESS" && (
             <Button size="sm" variant="outline" onClick={markReviewed}>
-              <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Mark Reviewed
+              <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> {t("ai.markReviewed")}
             </Button>
           )}
           <Button size="sm" onClick={triggerRun} disabled={running}>
             {running ? (
-              <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Running...</>
+              <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> {t("ai.running")}</>
             ) : (
-              <><Play className="h-3.5 w-3.5 mr-1" /> Run Analysis</>
+              <><Play className="h-3.5 w-3.5 mr-1" /> {t("ai.runAnalysis")}</>
             )}
           </Button>
         </div>
@@ -144,13 +146,13 @@ function AiInsightsContent() {
                   {run.status}
                 </StatusChip>
                 <span className="text-sm">
-                  Last run: {new Date(run.createdAt).toLocaleString()}
+                  {t("ai.lastRun")} {new Date(run.createdAt).toLocaleString()}
                 </span>
-                {run.reviewed && <Badge variant="outline" className="text-xs">Reviewed</Badge>}
+                {run.reviewed && <Badge variant="outline" className="text-xs">{t("discounts.reviewed")}</Badge>}
               </div>
               <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                <span>Model: {run.model}</span>
-                <span>Tokens: {run.tokensIn ?? 0} in / {run.tokensOut ?? 0} out</span>
+                <span>{t("ai.model")}: {run.model}</span>
+                <span>{t("ai.tokens")} {run.tokensIn ?? 0} {t("ai.in")} / {run.tokensOut ?? 0} {t("ai.out")}</span>
               </div>
             </div>
             {run.errorMessage && (
@@ -165,9 +167,9 @@ function AiInsightsContent() {
           <CardContent className="py-0">
             <EmptyState
               icon={<Brain className="h-6 w-6 text-muted-foreground" />}
-              title="No AI analysis runs yet"
-              description="Click 'Run Analysis' to generate insights, or configure OPENAI_API_KEY in settings."
-              action={{ label: "Run Analysis", onClick: triggerRun }}
+              title={t("ai.noRuns")}
+              description={t("ai.noRunsDesc")}
+              action={{ label: t("ai.runAnalysis"), onClick: triggerRun }}
             />
           </CardContent>
         </Card>
@@ -181,14 +183,14 @@ function AiInsightsContent() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <Lightbulb className="h-4 w-4 text-amber-500" />
-                Today&apos;s Headline
+                {t("ai.todayHeadline")}
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
               <p className="text-lg font-medium">{insights.summary.headline}</p>
               {insights.summary.top_risk_locations.length > 0 && (
                 <div className="mt-4 space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Top Risk Locations</p>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t("ai.topRiskLocations")}</p>
                   {insights.summary.top_risk_locations.map((loc, i) => (
                     <div key={i} className="flex items-start gap-2 bg-red-50 rounded-md px-3 py-2">
                       <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
@@ -215,7 +217,7 @@ function AiInsightsContent() {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">
-                  AI Prioritized Transfers
+                  {t("ai.prioritizedTransfers")}
                   <Badge variant="secondary" className="ml-2">{insights.prioritized_transfers.length}</Badge>
                 </CardTitle>
               </CardHeader>
@@ -225,31 +227,31 @@ function AiInsightsContent() {
                     <table className="w-full text-sm sticky-header">
                       <thead>
                         <tr className="border-b bg-muted/50 text-muted-foreground">
-                          <th className="p-3 text-center font-medium">Priority</th>
-                          <th className="p-3 text-left font-medium">SKU</th>
-                          <th className="p-3 text-left font-medium">To</th>
-                          <th className="p-3 text-right font-medium">Qty</th>
-                          <th className="p-3 text-center font-medium">Confidence</th>
-                          <th className="p-3 text-center font-medium">Cover</th>
-                          <th className="p-3 text-left font-medium">Rationale</th>
+                          <th className="p-3 text-center font-medium">{t("transfers.priority")}</th>
+                          <th className="p-3 text-left font-medium">{t("transfers.sku")}</th>
+                          <th className="p-3 text-left font-medium">{t("ai.to")}</th>
+                          <th className="p-3 text-right font-medium">{t("ai.qty")}</th>
+                          <th className="p-3 text-center font-medium">{t("ai.confidence")}</th>
+                          <th className="p-3 text-center font-medium">{t("transfers.cover")}</th>
+                          <th className="p-3 text-left font-medium">{t("discounts.rationale")}</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {insights.prioritized_transfers.map((t, i) => (
+                        {insights.prioritized_transfers.map((tr, i) => (
                           <tr key={i} className="border-b hover:bg-muted/30 transition-colors">
                             <td className="p-3 text-center">
-                              <StatusChip variant={t.priority >= 70 ? "critical" : t.priority >= 40 ? "warning" : "success"}>
-                                {t.priority}
+                              <StatusChip variant={tr.priority >= 70 ? "critical" : tr.priority >= 40 ? "warning" : "success"}>
+                                {tr.priority}
                               </StatusChip>
                             </td>
-                            <td className="p-3 font-medium">{t.sku}</td>
-                            <td className="p-3">{t.to_location}</td>
-                            <td className="p-3 text-right font-bold text-primary tabular-nums">{t.qty}</td>
+                            <td className="p-3 font-medium">{tr.sku}</td>
+                            <td className="p-3">{tr.to_location}</td>
+                            <td className="p-3 text-right font-bold text-primary tabular-nums">{tr.qty}</td>
                             <td className="p-3 text-center">
-                              <Badge variant="outline">{(t.confidence * 100).toFixed(0)}%</Badge>
+                              <Badge variant="outline">{(tr.confidence * 100).toFixed(0)}%</Badge>
                             </td>
-                            <td className="p-3 text-center">{t.evidence.days_of_cover.toFixed(0)}d</td>
-                            <td className="p-3 text-muted-foreground truncate max-w-[200px]">{t.rationale}</td>
+                            <td className="p-3 text-center">{tr.evidence.days_of_cover.toFixed(0)}d</td>
+                            <td className="p-3 text-muted-foreground truncate max-w-[200px]">{tr.rationale}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -265,7 +267,7 @@ function AiInsightsContent() {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">
-                  AI Discount Suggestions
+                  {t("ai.discountSuggestions")}
                   <Badge variant="secondary" className="ml-2">{insights.discount_actions.length}</Badge>
                 </CardTitle>
               </CardHeader>
@@ -275,13 +277,13 @@ function AiInsightsContent() {
                     <table className="w-full text-sm sticky-header">
                       <thead>
                         <tr className="border-b bg-muted/50 text-muted-foreground">
-                          <th className="p-3 text-left font-medium">SKU</th>
-                          <th className="p-3 text-left font-medium">Location</th>
-                          <th className="p-3 text-center font-medium">Discount</th>
-                          <th className="p-3 text-center font-medium">Confidence</th>
-                          <th className="p-3 text-right font-medium">On Hand</th>
-                          <th className="p-3 text-center font-medium">Cover</th>
-                          <th className="p-3 text-left font-medium">Rationale</th>
+                          <th className="p-3 text-left font-medium">{t("transfers.sku")}</th>
+                          <th className="p-3 text-left font-medium">{t("discounts.location")}</th>
+                          <th className="p-3 text-center font-medium">{t("discounts.discount")}</th>
+                          <th className="p-3 text-center font-medium">{t("ai.confidence")}</th>
+                          <th className="p-3 text-right font-medium">{t("discounts.onHand")}</th>
+                          <th className="p-3 text-center font-medium">{t("transfers.cover")}</th>
+                          <th className="p-3 text-left font-medium">{t("discounts.rationale")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -317,7 +319,7 @@ function AiInsightsContent() {
                 <CardTitle className="text-base flex items-center gap-2">
                   {anomaliesOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   <Activity className="h-4 w-4 text-amber-600" />
-                  Anomalies Detected
+                  {t("ai.anomalies")}
                   <Badge variant="secondary">{insights.anomalies.length}</Badge>
                 </CardTitle>
               </CardHeader>
@@ -328,12 +330,12 @@ function AiInsightsContent() {
                       <div className="flex items-center gap-2 mb-1">
                         <StatusChip variant="warning">{a.type.replace(/_/g, " ")}</StatusChip>
                         <span className="text-sm font-medium">{a.sku}</span>
-                        <span className="text-xs text-muted-foreground">at {a.location}</span>
+                        <span className="text-xs text-muted-foreground">{t("ai.at")} {a.location}</span>
                         <Badge variant="outline" className="text-xs ml-auto">{(a.confidence * 100).toFixed(0)}%</Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">{a.description}</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {a.evidence.metric}: {a.evidence.value} (baseline: {a.evidence.baseline})
+                        {a.evidence.metric}: {a.evidence.value} ({t("ai.baseline")}: {a.evidence.baseline})
                       </p>
                     </div>
                   ))}
@@ -349,7 +351,7 @@ function AiInsightsContent() {
                 <CardTitle className="text-base flex items-center gap-2">
                   {paramsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   <Lightbulb className="h-4 w-4 text-blue-600" />
-                  Parameter Suggestions
+                  {t("ai.paramSuggestions")}
                   <Badge variant="secondary">{insights.parameter_suggestions.length}</Badge>
                 </CardTitle>
               </CardHeader>

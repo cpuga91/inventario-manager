@@ -18,6 +18,7 @@ import {
   CheckCircle2, AlertCircle, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useI18n } from "@/lib/i18n";
 
 interface VariantCogs {
   id: string; sku: string; title: string; productTitle: string;
@@ -35,10 +36,11 @@ function CogsContent() {
     results: Array<{ sku: string; status: string; error?: string }>;
   } | null>(null);
   const [writeToShopify, setWriteToShopify] = useState(false);
+  const { t } = useI18n();
 
   useEffect(() => {
-    const t = setTimeout(() => setSearchDebounced(search), 300);
-    return () => clearTimeout(t);
+    const ti = setTimeout(() => setSearchDebounced(search), 300);
+    return () => clearTimeout(ti);
   }, [search]);
 
   const fetchData = useCallback(async () => {
@@ -49,7 +51,7 @@ function CogsContent() {
       const data = await res.json();
       setVariants(data.variants || []);
     } catch {
-      toast.error("Failed to load COGS data");
+      toast.error(t("cogs.failedLoad"));
     } finally {
       setLoading(false);
     }
@@ -69,11 +71,11 @@ function CogsContent() {
       const res = await fetch("/api/cogs", { method: "POST", body: formData });
       const data = await res.json();
       setUploadResult(data);
-      if (data.success > 0) toast.success(`${data.success} COGS values updated`);
-      if (data.errors > 0) toast.error(`${data.errors} errors during import`);
+      if (data.success > 0) toast.success(`${data.success} ${t("cogs.valuesUpdated")}`);
+      if (data.errors > 0) toast.error(`${data.errors} ${t("cogs.errorsImport")}`);
       fetchData();
     } catch {
-      toast.error("Upload failed");
+      toast.error(t("cogs.uploadFailed"));
     } finally {
       setUploading(false);
       e.target.value = "";
@@ -85,17 +87,17 @@ function CogsContent() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="COGS Management" subtitle="Cost of Goods Sold tracking via Shopify metafield (finance.cogs)" />
+      <PageHeader title={t("cogs.title")} subtitle={t("cogs.subtitle")} />
 
       {/* CSV Import Card */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Upload className="h-4 w-4" />
-            Import COGS via CSV
+            {t("cogs.importCsv")}
           </CardTitle>
           <CardDescription>
-            Upload a CSV with columns: <code className="bg-muted px-1.5 py-0.5 rounded text-xs">SKU, COGS</code>
+            {t("cogs.uploadDesc")} <code className="bg-muted px-1.5 py-0.5 rounded text-xs">SKU, COGS</code>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -106,7 +108,7 @@ function CogsContent() {
               onCheckedChange={(v) => setWriteToShopify(v === true)}
             />
             <Label htmlFor="writeToShopify" className="text-sm cursor-pointer">
-              Also write COGS to Shopify metafield (finance.cogs)
+              {t("cogs.writeToShopify")}
             </Label>
           </div>
 
@@ -114,9 +116,9 @@ function CogsContent() {
             <Button variant="outline" size="sm" asChild className="relative">
               <label className="cursor-pointer">
                 {uploading ? (
-                  <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Uploading...</>
+                  <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> {t("cogs.uploading")}</>
                 ) : (
-                  <><FileText className="h-3.5 w-3.5 mr-1" /> Choose CSV File</>
+                  <><FileText className="h-3.5 w-3.5 mr-1" /> {t("cogs.chooseFile")}</>
                 )}
                 <input
                   type="file"
@@ -134,15 +136,15 @@ function CogsContent() {
               <div className="flex items-center gap-4 text-sm">
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                  <span>{uploadResult.success} updated</span>
+                  <span>{uploadResult.success} {t("cogs.updated")}</span>
                 </div>
                 {uploadResult.errors > 0 && (
                   <div className="flex items-center gap-1.5 text-destructive">
                     <AlertCircle className="h-4 w-4" />
-                    <span>{uploadResult.errors} errors</span>
+                    <span>{uploadResult.errors} {t("cogs.errors")}</span>
                   </div>
                 )}
-                <span className="text-muted-foreground">of {uploadResult.total} total</span>
+                <span className="text-muted-foreground">of {uploadResult.total} {t("cogs.total")}</span>
               </div>
               {uploadResult.results.filter((r) => r.status === "error").length > 0 && (
                 <div className="space-y-1 mt-2">
@@ -166,15 +168,15 @@ function CogsContent() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search SKU or product..."
+            placeholder={t("transfers.searchPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 h-9"
           />
         </div>
-        <Badge variant="outline">{withCogsCount} with COGS</Badge>
+        <Badge variant="outline">{withCogsCount} {t("cogs.withCogs")}</Badge>
         {withoutCogsCount > 0 && (
-          <Badge variant="secondary">{withoutCogsCount} missing COGS</Badge>
+          <Badge variant="secondary">{withoutCogsCount} {t("cogs.missingCogs")}</Badge>
         )}
       </div>
 
@@ -186,8 +188,8 @@ function CogsContent() {
           <CardContent className="py-0">
             <EmptyState
               icon={<DollarSign className="h-6 w-6 text-muted-foreground" />}
-              title="No variants found"
-              description="Sync your Shopify data first or adjust your search."
+              title={t("cogs.noVariants")}
+              description={t("cogs.syncFirst")}
             />
           </CardContent>
         </Card>
@@ -198,10 +200,10 @@ function CogsContent() {
               <thead>
                 <tr className="border-b bg-muted/50 text-muted-foreground">
                   <th className="p-3 text-left font-medium">SKU</th>
-                  <th className="p-3 text-left font-medium">Product / Variant</th>
+                  <th className="p-3 text-left font-medium">{t("cogs.productVariant")}</th>
                   <th className="p-3 text-right font-medium">COGS</th>
-                  <th className="p-3 text-left font-medium">Source</th>
-                  <th className="p-3 text-left font-medium">Updated</th>
+                  <th className="p-3 text-left font-medium">{t("cogs.source")}</th>
+                  <th className="p-3 text-left font-medium">{t("settings.updated")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -216,7 +218,7 @@ function CogsContent() {
                       {v.cogs !== null ? (
                         <span className="font-medium">${v.cogs.toFixed(2)}</span>
                       ) : (
-                        <span className="text-muted-foreground">Not set</span>
+                        <span className="text-muted-foreground">{t("cogs.notSet")}</span>
                       )}
                     </td>
                     <td className="p-3">
