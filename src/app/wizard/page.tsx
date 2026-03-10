@@ -28,7 +28,7 @@ const steps = [
   { icon: Wifi, title: "Connect Shopify", desc: "Validate your Shopify API connection" },
   { icon: MapPin, title: "Map Locations", desc: "Assign warehouse, stores, and online channel" },
   { icon: SlidersHorizontal, title: "Business Rules", desc: "Set replenishment thresholds" },
-  { icon: Database, title: "Initialize Data", desc: "Import 12 months of history" },
+  { icon: Database, title: "Initialize Data", desc: "Import historical data from Shopify" },
 ];
 
 const ruleLabels: Record<string, { label: string; desc: string }> = {
@@ -68,6 +68,7 @@ export default function WizardPage() {
   });
 
   // Step 4
+  const [backfillMonths, setBackfillMonths] = useState(12);
   const [backfillStatus, setBackfillStatus] = useState<null | {
     sync: { products: number; variants: number; orders: number; inventoryLevels: number };
     analytics: { transferCount: number; discountCount: number };
@@ -147,7 +148,11 @@ export default function WizardPage() {
   const handleStep4 = async () => {
     setLoading(true); setError(""); setBackfillPhase(""); setBackfillDetail("");
     try {
-      const res = await fetch("/api/sync/backfill", { method: "POST" });
+      const res = await fetch("/api/sync/backfill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ months: backfillMonths }),
+      });
 
       // Check if response is SSE stream
       if (res.headers.get("Content-Type")?.includes("text/event-stream") && res.body) {
@@ -449,10 +454,29 @@ export default function WizardPage() {
             {step === 4 && (
               <div className="space-y-4">
                 {!backfillStatus ? (
-                  <div className="text-center py-4">
-                    <p className="text-sm text-muted-foreground mb-4">
-                      This will import your last 12 months of Shopify data and run the first analytics computation.
+                  <div className="py-4">
+                    <p className="text-sm text-muted-foreground mb-4 text-center">
+                      Import your Shopify historical data and run the first analytics computation.
                     </p>
+                    {!loading && (
+                      <div className="space-y-1.5 mb-4">
+                        <Label htmlFor="backfill-months" className="text-sm">Months of history to import</Label>
+                        <Select value={String(backfillMonths)} onValueChange={(v) => setBackfillMonths(parseInt(v))}>
+                          <SelectTrigger className="h-9 w-48">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="3">3 months</SelectItem>
+                            <SelectItem value="6">6 months</SelectItem>
+                            <SelectItem value="12">12 months</SelectItem>
+                            <SelectItem value="18">18 months</SelectItem>
+                            <SelectItem value="24">24 months</SelectItem>
+                            <SelectItem value="36">36 months</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">More data improves accuracy but takes longer to import.</p>
+                      </div>
+                    )}
                     {loading && (
                       <div className="space-y-4">
                         {/* Phase progress steps */}
