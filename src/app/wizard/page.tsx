@@ -48,6 +48,8 @@ export default function WizardPage() {
   const [error, setError] = useState("");
 
   // Step 1
+  const [shopDomain, setShopDomain] = useState("");
+  const [accessToken, setAccessToken] = useState("");
   const [shopName, setShopName] = useState("");
 
   // Step 2
@@ -70,6 +72,8 @@ export default function WizardPage() {
     sync: { products: number; variants: number; orders: number; inventoryLevels: number };
     analytics: { transferCount: number; discountCount: number };
   }>(null);
+  const [backfillPhase, setBackfillPhase] = useState("");
+  const [backfillDetail, setBackfillDetail] = useState("");
 
   // Resume wizard
   useEffect(() => {
@@ -78,6 +82,7 @@ export default function WizardPage() {
       .then((data) => {
         if (data.wizardComplete) router.push("/dashboard");
         else if (data.wizardStep > 0) setStep(data.wizardStep + 1);
+        if (data.shopDomain) setShopDomain(data.shopDomain);
       })
       .catch(() => router.push("/login"));
   }, [router]);
@@ -94,11 +99,13 @@ export default function WizardPage() {
 
   const handleStep1 = async () => {
     setLoading(true); setError("");
+    if (!shopDomain.trim()) { setError("Shop domain is required"); setLoading(false); return; }
+    if (!accessToken.trim()) { setError("Access token is required"); setLoading(false); return; }
     try {
       const res = await fetch("/api/wizard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ step: 1 }),
+        body: JSON.stringify({ step: 1, data: { shopDomain: shopDomain.trim(), accessToken: accessToken.trim() } }),
       });
       const data = await res.json();
       if (data.error) setError(data.error);
@@ -138,13 +145,52 @@ export default function WizardPage() {
   };
 
   const handleStep4 = async () => {
-    setLoading(true); setError("");
+    setLoading(true); setError(""); setBackfillPhase(""); setBackfillDetail("");
     try {
       const res = await fetch("/api/sync/backfill", { method: "POST" });
-      const data = await res.json();
-      if (data.error) setError(data.error);
-      else setBackfillStatus(data);
-    } catch { setError("Backfill failed"); }
+
+      // Check if response is SSE stream
+      if (res.headers.get("Content-Type")?.includes("text/event-stream") && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n\n");
+          buffer = lines.pop() || "";
+
+          for (const chunk of lines) {
+            const dataLine = chunk.trim().replace(/^data: /, "");
+            if (!dataLine) continue;
+            try {
+              const msg = JSON.parse(dataLine);
+              if (msg.type === "phase") {
+                setBackfillPhase(msg.phase);
+                setBackfillDetail(msg.message);
+              } else if (msg.type === "progress") {
+                setBackfillDetail(msg.detail);
+              } else if (msg.type === "complete") {
+                setBackfillStatus({
+                  sync: msg.sync,
+                  analytics: msg.analytics,
+                });
+              } else if (msg.type === "error") {
+                setError(msg.error);
+              }
+            } catch { /* ignore parse errors */ }
+          }
+        }
+      } else {
+        // Fallback for non-streaming response
+        const data = await res.json();
+        if (data.error) setError(data.error);
+        else setBackfillStatus(data);
+      }
+    } catch { setError("Backfill failed. Please try again."); }
     finally { setLoading(false); }
   };
 
@@ -221,8 +267,35 @@ export default function WizardPage() {
             {step === 1 && (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  We&apos;ll validate your Shopify connection using the <code className="bg-muted px-1.5 py-0.5 rounded text-xs">SHOPIFY_SHOP</code> and <code className="bg-muted px-1.5 py-0.5 rounded text-xs">SHOPIFY_ACCESS_TOKEN</code> environment variables.
+                  Enter your Shopify store domain and Admin API access token to connect.
                 </p>
+                <div className="space-y-1.5">
+                  <Label htmlFor="shop-domain">Shop Domain *</Label>
+                  <Input
+                    id="shop-domain"
+                    placeholder="my-store.myshopify.com"
+                    value={shopDomain}
+                    onChange={(e) => setShopDomain(e.target.value)}
+                    className="h-9"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Your Shopify store URL, e.g. <code className="bg-muted px-1 py-0.5 rounded">my-store.myshopify.com</code>
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="access-token">Admin API Access Token *</Label>
+                  <Input
+                    id="access-token"
+                    type="password"
+                    placeholder="shpat_xxxxxxxxxxxxxxxx"
+                    value={accessToken}
+                    onChange={(e) => setAccessToken(e.target.value)}
+                    className="h-9 font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    From Shopify Admin → Settings → Apps → Develop apps. Requires scopes: <code className="bg-muted px-1 py-0.5 rounded">read_products</code>, <code className="bg-muted px-1 py-0.5 rounded">read_inventory</code>, <code className="bg-muted px-1 py-0.5 rounded">read_orders</code>, <code className="bg-muted px-1 py-0.5 rounded">read_locations</code>, <code className="bg-muted px-1 py-0.5 rounded">write_products</code>.
+                  </p>
+                </div>
                 {shopName && (
                   <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 p-3 rounded-lg">
                     <Check className="h-4 w-4" />
@@ -381,11 +454,42 @@ export default function WizardPage() {
                       This will import your last 12 months of Shopify data and run the first analytics computation.
                     </p>
                     {loading && (
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-center gap-2 text-sm text-primary">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Running backfill + analytics... This may take several minutes.
+                      <div className="space-y-4">
+                        {/* Phase progress steps */}
+                        <div className="space-y-2 text-left">
+                          {[
+                            { key: "variants", label: "Syncing products & variants" },
+                            { key: "inventory", label: "Syncing inventory levels" },
+                            { key: "orders", label: "Syncing orders" },
+                            { key: "aggregation", label: "Aggregating daily sales" },
+                            { key: "analytics", label: "Running analytics engine" },
+                            { key: "alerts", label: "Generating alerts" },
+                          ].map((p) => {
+                            const phases = ["variants", "inventory", "orders", "aggregation", "analytics", "alerts"];
+                            const currentIdx = phases.indexOf(backfillPhase);
+                            const thisIdx = phases.indexOf(p.key);
+                            const isDone = thisIdx < currentIdx;
+                            const isActive = p.key === backfillPhase;
+                            return (
+                              <div key={p.key} className={`flex items-center gap-2 text-sm rounded-lg px-3 py-1.5 ${
+                                isActive ? "bg-primary/10 text-primary font-medium" :
+                                isDone ? "text-emerald-600" : "text-muted-foreground"
+                              }`}>
+                                {isDone ? (
+                                  <Check className="h-4 w-4 text-emerald-600 shrink-0" />
+                                ) : isActive ? (
+                                  <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                                ) : (
+                                  <div className="h-4 w-4 rounded-full border border-muted-foreground/30 shrink-0" />
+                                )}
+                                {p.label}
+                              </div>
+                            );
+                          })}
                         </div>
+                        {backfillDetail && (
+                          <p className="text-xs text-muted-foreground text-center">{backfillDetail}</p>
+                        )}
                         <Progress value={undefined} className="h-1" />
                       </div>
                     )}
@@ -427,7 +531,7 @@ export default function WizardPage() {
               </div>
               <div>
                 {step === 1 && (
-                  <Button onClick={handleStep1} disabled={loading}>
+                  <Button onClick={handleStep1} disabled={loading || !shopDomain.trim() || !accessToken.trim()}>
                     {loading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Wifi className="h-4 w-4 mr-1" />}
                     Test Connection
                   </Button>
