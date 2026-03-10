@@ -1,3 +1,4 @@
+import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ShopifyClient } from "@/lib/shopify";
@@ -5,7 +6,7 @@ import { SyncService } from "@/lib/sync";
 import { runAnalytics } from "@/lib/analytics";
 import { generateAlertsFromRecommendations } from "@/lib/notifications";
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
     const user = await requireAuth(["ADMIN"]);
     const tenant = await prisma.tenant.findUnique({ where: { id: user.tenantId } });
@@ -14,6 +15,17 @@ export async function POST() {
         status: 404,
         headers: { "Content-Type": "application/json" },
       });
+    }
+
+    // Parse configurable months from request body (default 12)
+    let months = 12;
+    try {
+      const body = await req.json();
+      if (body.months && typeof body.months === "number" && body.months >= 1 && body.months <= 36) {
+        months = body.months;
+      }
+    } catch {
+      // No body or invalid JSON — use default
     }
 
     const client = new ShopifyClient({
@@ -25,8 +37,15 @@ export async function POST() {
 
     const stream = new ReadableStream({
       async start(controller) {
+        let closed = false;
+
         const send = (data: Record<string, unknown>) => {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          } catch {
+            closed = true;
+          }
         };
 
         try {
@@ -38,8 +57,8 @@ export async function POST() {
           const sync = new SyncService(client, tenant.id, onProgress);
 
           // Phase 1: Backfill
-          send({ type: "phase", phase: "variants", message: "Syncing products & variants..." });
-          const stats = await sync.backfill(12);
+          send({ type: "phase", phase: "variants", message: `Syncing products & variants (${months} months)...` });
+          const stats = await sync.backfill(months);
           send({ type: "phase_done", phase: "backfill", stats });
 
           // Phase 2: Aggregate daily sales
@@ -75,7 +94,9 @@ export async function POST() {
           const message = err instanceof Error ? err.message : "Error";
           send({ type: "error", error: message });
         } finally {
-          controller.close();
+          if (!closed) {
+            try { controller.close(); } catch { /* already closed */ }
+          }
         }
       },
     });
