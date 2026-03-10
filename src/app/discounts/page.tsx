@@ -17,6 +17,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Tag, PackageX, TrendingDown, CheckCircle2, Info } from "lucide-react";
 import { toast } from "sonner";
+import { useI18n } from "@/lib/i18n";
 
 interface Discount {
   id: string; sku: string; title: string; productTitle: string; locationName: string;
@@ -30,12 +31,13 @@ function DiscountsContent() {
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [drawerDiscount, setDrawerDiscount] = useState<Discount | null>(null);
+  const { t } = useI18n();
 
   useEffect(() => {
     fetch("/api/discounts")
       .then((r) => r.json())
       .then((data) => setDiscounts(data.discounts || []))
-      .catch(() => toast.error("Failed to load discounts"))
+      .catch(() => toast.error(t("discounts.failedLoad")))
       .finally(() => setLoading(false));
   }, []);
 
@@ -50,9 +52,9 @@ function DiscountsContent() {
         prev.map((d) => (ids.includes(d.id) ? { ...d, status: "reviewed", reviewedAt: new Date().toISOString() } : d))
       );
       setSelectedIds(new Set());
-      toast.success(`${ids.length} item(s) marked as reviewed`);
+      toast.success(`${ids.length} ${t("discounts.markedReviewed")}`);
     } catch {
-      toast.error("Failed to update");
+      toast.error(t("discounts.failedUpdate"));
     }
   };
 
@@ -67,8 +69,8 @@ function DiscountsContent() {
       return (
         <EmptyState
           icon={<Tag className="h-6 w-6 text-muted-foreground" />}
-          title="No items"
-          description="No discount recommendations in this category."
+          title={t("discounts.noItems")}
+          description={t("discounts.noRecommendations")}
         />
       );
     }
@@ -102,13 +104,13 @@ function DiscountsContent() {
                   />
                 </th>
                 <th className="p-3 text-left font-medium">SKU</th>
-                <th className="p-3 text-left font-medium">Location</th>
-                <th className="p-3 text-right font-medium">On Hand</th>
+                <th className="p-3 text-left font-medium">{t("discounts.location")}</th>
+                <th className="p-3 text-right font-medium">{t("discounts.onHand")}</th>
                 <th className="p-3 text-center font-medium">Cover</th>
-                <th className="p-3 text-right font-medium">Days No Sale</th>
-                <th className="p-3 text-right font-medium">Capital</th>
-                <th className="p-3 text-center font-medium">Discount</th>
-                <th className="p-3 text-center font-medium">Action</th>
+                <th className="p-3 text-right font-medium">{t("discounts.daysNoSale")}</th>
+                <th className="p-3 text-right font-medium">{t("discounts.capital")}</th>
+                <th className="p-3 text-center font-medium">{t("discounts.discount")}</th>
+                <th className="p-3 text-center font-medium">{t("discounts.action")}</th>
               </tr>
             </thead>
             <tbody>
@@ -150,10 +152,10 @@ function DiscountsContent() {
                   </td>
                   <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
                     {d.status === "reviewed" ? (
-                      <StatusChip variant="success">Reviewed</StatusChip>
+                      <StatusChip variant="success">{t("discounts.reviewed")}</StatusChip>
                     ) : (
                       <Button size="sm" variant="ghost" onClick={() => markReviewed([d.id])} className="h-7 text-xs">
-                        <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Review
+                        <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> {t("discounts.review")}
                       </Button>
                     )}
                   </td>
@@ -168,12 +170,12 @@ function DiscountsContent() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Discounts" subtitle="Overstock and dead stock items that need markdown action">
+      <PageHeader title={t("discounts.title")} subtitle={t("discounts.subtitle")}>
         {selectedIds.size > 0 && (
           <div className="flex items-center gap-2">
             <Badge variant="secondary">{selectedIds.size} selected</Badge>
             <Button size="sm" onClick={() => markReviewed(Array.from(selectedIds))}>
-              <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Mark Reviewed
+              <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> {t("discounts.markReviewed")}
             </Button>
           </div>
         )}
@@ -183,17 +185,17 @@ function DiscountsContent() {
         <TabsList>
           <TabsTrigger value="deadstock" className="gap-1.5">
             <PackageX className="h-3.5 w-3.5" />
-            Dead Stock
+            {t("discounts.deadStock")}
             {deadStock.length > 0 && <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-[10px]">{deadStock.length}</Badge>}
           </TabsTrigger>
           <TabsTrigger value="overstock" className="gap-1.5">
             <TrendingDown className="h-3.5 w-3.5" />
-            Overstock
+            {t("discounts.overstock")}
             {overstock.length > 0 && <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px]">{overstock.length}</Badge>}
           </TabsTrigger>
           <TabsTrigger value="reviewed" className="gap-1.5">
             <CheckCircle2 className="h-3.5 w-3.5" />
-            Reviewed
+            {t("discounts.reviewed")}
             <Badge variant="outline" className="ml-1 h-5 px-1.5 text-[10px]">{reviewed.length}</Badge>
           </TabsTrigger>
         </TabsList>
@@ -221,38 +223,38 @@ function DiscountsContent() {
                   <StatusChip variant={drawerDiscount.discountBucket >= 30 ? "critical" : "warning"}>
                     {drawerDiscount.discountBucket}% off
                   </StatusChip>
-                  {drawerDiscount.status === "reviewed" && <StatusChip variant="success">Reviewed</StatusChip>}
+                  {drawerDiscount.status === "reviewed" && <StatusChip variant="success">{t("discounts.reviewed")}</StatusChip>}
                 </div>
 
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Details</CardTitle>
+                    <CardTitle className="text-sm">{t("discounts.details")}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Location</span>
+                      <span className="text-muted-foreground">{t("discounts.location")}</span>
                       <span className="font-medium">{drawerDiscount.locationName}</span>
                     </div>
                     <Separator />
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">On Hand</span>
+                      <span className="text-muted-foreground">{t("discounts.onHand")}</span>
                       <span className="font-medium">{drawerDiscount.onHand}</span>
                     </div>
                     <Separator />
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Days of Cover</span>
+                      <span className="text-muted-foreground">{t("discounts.daysOfCover")}</span>
                       <span>{drawerDiscount.daysOfCover?.toFixed(0)}d</span>
                     </div>
                     <Separator />
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Days Without Sale</span>
+                      <span className="text-muted-foreground">{t("discounts.daysWithoutSale")}</span>
                       <span>{drawerDiscount.daysSinceLastSale ?? "N/A"}</span>
                     </div>
                     {drawerDiscount.capitalTied !== null && (
                       <>
                         <Separator />
                         <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Capital Tied</span>
+                          <span className="text-muted-foreground">{t("transfers.capitalTied")}</span>
                           <span className="font-medium">${drawerDiscount.capitalTied?.toFixed(2)}</span>
                         </div>
                       </>
@@ -263,7 +265,7 @@ function DiscountsContent() {
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm flex items-center gap-1.5">
-                      <Info className="h-3.5 w-3.5" /> Rationale
+                      <Info className="h-3.5 w-3.5" /> {t("discounts.rationale")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -279,7 +281,7 @@ function DiscountsContent() {
                       setDrawerDiscount(null);
                     }}
                   >
-                    <CheckCircle2 className="h-4 w-4 mr-2" /> Mark as Reviewed
+                    <CheckCircle2 className="h-4 w-4 mr-2" /> {t("discounts.markAsReviewed")}
                   </Button>
                 )}
               </div>

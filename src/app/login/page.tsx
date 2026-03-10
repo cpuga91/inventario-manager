@@ -6,10 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Package, Loader2 } from "lucide-react";
+import { Package, Loader2, Globe } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { t, locale, setLocale } = useI18n();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -34,7 +36,7 @@ export default function LoginPage() {
         router.push("/dashboard");
       }
     } catch {
-      setError("Network error. Please try again.");
+      setError(t("login.networkError"));
     } finally {
       setLoading(false);
     }
@@ -47,16 +49,29 @@ export default function LoginPage() {
           <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary text-primary-foreground mb-4">
             <Package className="h-6 w-6" />
           </div>
-          <h1 className="text-xl font-bold">Adagio Replenishment</h1>
+          <h1 className="text-xl font-bold">{t("login.title")}</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Multi-location inventory management
+            {t("login.subtitle")}
           </p>
         </div>
 
         <Card>
           <CardHeader className="pb-4">
-            <CardTitle className="text-lg">Sign in</CardTitle>
-            <CardDescription>Enter your credentials to access your account</CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-lg">{t("login.signIn")}</CardTitle>
+                <CardDescription>{t("login.credentials")}</CardDescription>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                onClick={() => setLocale(locale === "en" ? "es" : "en")}
+              >
+                <Globe className="h-3.5 w-3.5" />
+                {locale === "en" ? "ES" : "EN"}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -66,7 +81,7 @@ export default function LoginPage() {
                 </div>
               )}
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t("login.email")}</Label>
                 <Input
                   id="email"
                   type="email"
@@ -79,7 +94,7 @@ export default function LoginPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t("login.password")}</Label>
                 <Input
                   id="password"
                   type="password"
@@ -93,10 +108,10 @@ export default function LoginPage() {
                 {loading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Signing in...
+                    {t("login.signingIn")}
                   </>
                 ) : (
-                  "Sign in"
+                  t("login.signIn")
                 )}
               </Button>
             </form>

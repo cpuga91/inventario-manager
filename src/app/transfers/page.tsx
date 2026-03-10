@@ -23,6 +23,7 @@ import {
   CheckCircle2, Truck, PackageCheck, X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useI18n } from "@/lib/i18n";
 
 interface Transfer {
   id: string; sku: string; title: string; productTitle: string; vendor: string;
@@ -33,22 +34,6 @@ interface Transfer {
 }
 
 interface Location { id: string; name: string; }
-
-function getPriorityChip(daysOfCover: number, stockoutRisk: boolean) {
-  if (stockoutRisk || daysOfCover < 3) return <StatusChip variant="critical">Critical</StatusChip>;
-  if (daysOfCover < 7) return <StatusChip variant="warning">High</StatusChip>;
-  if (daysOfCover < 14) return <StatusChip variant="info">Medium</StatusChip>;
-  return <StatusChip variant="neutral">Low</StatusChip>;
-}
-
-function getStatusChip(status: string) {
-  switch (status) {
-    case "picked": return <StatusChip variant="info">Picked</StatusChip>;
-    case "shipped": return <StatusChip variant="purple">Shipped</StatusChip>;
-    case "received": return <StatusChip variant="success">Received</StatusChip>;
-    default: return <StatusChip variant="neutral">Pending</StatusChip>;
-  }
-}
 
 function TransfersContent() {
   const [transfers, setTransfers] = useState<Transfer[]>([]);
@@ -62,11 +47,28 @@ function TransfersContent() {
   const [aiTransfers, setAiTransfers] = useState<Array<{ sku: string; variant_id: string; priority: number; qty: number }>>([]);
   const [hasAiData, setHasAiData] = useState(false);
   const [drawerTransfer, setDrawerTransfer] = useState<Transfer | null>(null);
+  const { t } = useI18n();
+
+  function getPriorityChip(daysOfCover: number, stockoutRisk: boolean) {
+    if (stockoutRisk || daysOfCover < 3) return <StatusChip variant="critical">{t("transfers.critical")}</StatusChip>;
+    if (daysOfCover < 7) return <StatusChip variant="warning">{t("transfers.high")}</StatusChip>;
+    if (daysOfCover < 14) return <StatusChip variant="info">{t("transfers.medium")}</StatusChip>;
+    return <StatusChip variant="neutral">{t("transfers.lowPriority")}</StatusChip>;
+  }
+
+  function getStatusChip(status: string) {
+    switch (status) {
+      case "picked": return <StatusChip variant="info">{t("transfers.picked")}</StatusChip>;
+      case "shipped": return <StatusChip variant="purple">{t("transfers.shipped")}</StatusChip>;
+      case "received": return <StatusChip variant="success">{t("transfers.received")}</StatusChip>;
+      default: return <StatusChip variant="neutral">{t("transfers.pending")}</StatusChip>;
+    }
+  }
 
   // Debounce search
   useEffect(() => {
-    const t = setTimeout(() => setSearchDebounced(search), 300);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setSearchDebounced(search), 300);
+    return () => clearTimeout(timer);
   }, [search]);
 
   const fetchData = useCallback(async () => {
@@ -80,7 +82,7 @@ function TransfersContent() {
       setTransfers(data.transfers || []);
       setLocations(data.locations || []);
     } catch {
-      toast.error("Failed to load transfers");
+      toast.error(t("transfers.failedLoad"));
     } finally {
       setLoading(false);
     }
@@ -93,7 +95,7 @@ function TransfersContent() {
         setHasAiData(true);
       }
     } catch {}
-  }, [filterLocation, searchDebounced]);
+  }, [filterLocation, searchDebounced, t]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -105,11 +107,11 @@ function TransfersContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: Array.from(selectedIds), status }),
       });
-      toast.success(`${selectedIds.size} transfer(s) marked as ${status}`);
+      toast.success(`${selectedIds.size} ${t("transfers.markedAs")} ${status}`);
       setSelectedIds(new Set());
       fetchData();
     } catch {
-      toast.error("Failed to update status");
+      toast.error(t("transfers.failedUpdate"));
     }
   };
 
@@ -125,7 +127,7 @@ function TransfersContent() {
     if (selectedIds.size === displayTransfers.length)
       setSelectedIds(new Set());
     else
-      setSelectedIds(new Set(displayTransfers.map((t) => t.id)));
+      setSelectedIds(new Set(displayTransfers.map((tr) => tr.id)));
   };
 
   const displayTransfers = useMemo(() => {
@@ -146,26 +148,26 @@ function TransfersContent() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Transfers" subtitle="Transfer recommendations from warehouse to destinations">
+      <PageHeader title={t("transfers.title")} subtitle={t("transfers.subtitle")}>
         <div className="flex items-center gap-2">
           {selectedIds.size > 0 && (
             <>
-              <Badge variant="secondary">{selectedIds.size} selected</Badge>
+              <Badge variant="secondary">{selectedIds.size} {t("transfers.selected")}</Badge>
               <Button size="sm" variant="outline" onClick={() => handleStatusUpdate("picked")}>
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Picked
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> {t("transfers.picked")}
               </Button>
               <Button size="sm" variant="outline" onClick={() => handleStatusUpdate("shipped")}>
-                <Truck className="h-3.5 w-3.5 mr-1" /> Shipped
+                <Truck className="h-3.5 w-3.5 mr-1" /> {t("transfers.shipped")}
               </Button>
               <Button size="sm" variant="outline" onClick={() => handleStatusUpdate("received")}>
-                <PackageCheck className="h-3.5 w-3.5 mr-1" /> Received
+                <PackageCheck className="h-3.5 w-3.5 mr-1" /> {t("transfers.received")}
               </Button>
               <Separator orientation="vertical" className="h-6" />
             </>
           )}
           <Button size="sm" variant="outline" asChild>
             <a href={`/api/transfers/csv${filterLocation && filterLocation !== "all" ? `?locationId=${filterLocation}` : ""}`}>
-              <Download className="h-3.5 w-3.5 mr-1" /> Export CSV
+              <Download className="h-3.5 w-3.5 mr-1" /> {t("transfers.exportCsv")}
             </a>
           </Button>
         </div>
@@ -176,7 +178,7 @@ function TransfersContent() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search SKU or product..."
+            placeholder={t("transfers.searchPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 h-9"
@@ -184,10 +186,10 @@ function TransfersContent() {
         </div>
         <Select value={filterLocation} onValueChange={setFilterLocation}>
           <SelectTrigger className="w-[200px] h-9">
-            <SelectValue placeholder="All Destinations" />
+            <SelectValue placeholder={t("transfers.allDestinations")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Destinations</SelectItem>
+            <SelectItem value="all">{t("transfers.allDestinations")}</SelectItem>
             {locations.map((l) => (
               <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
             ))}
@@ -201,7 +203,7 @@ function TransfersContent() {
             className="h-9"
           >
             <Brain className="h-3.5 w-3.5 mr-1" />
-            AI Priority
+            {t("transfers.aiPriority")}
           </Button>
         )}
       </div>
@@ -212,8 +214,8 @@ function TransfersContent() {
           <CardContent className="py-0">
             <EmptyState
               icon={<ArrowRightLeft className="h-6 w-6 text-muted-foreground" />}
-              title="No transfer recommendations"
-              description="All destinations have sufficient inventory coverage."
+              title={t("transfers.noRecommendations")}
+              description={t("transfers.allSufficient")}
             />
           </CardContent>
         </Card>
@@ -230,61 +232,61 @@ function TransfersContent() {
                       aria-label="Select all"
                     />
                   </th>
-                  <th className="p-3 text-left font-medium">SKU</th>
-                  <th className="p-3 text-left font-medium">Product</th>
-                  <th className="p-3 text-left font-medium">Destination</th>
-                  <th className="p-3 text-right font-medium">WH Stock</th>
-                  <th className="p-3 text-right font-medium">Dest Stock</th>
-                  <th className="p-3 text-right font-medium">Avg/day</th>
-                  <th className="p-3 text-center font-medium">Cover</th>
-                  <th className="p-3 text-right font-medium">Transfer Qty</th>
-                  {useAiPriority && <th className="p-3 text-right font-medium">AI Qty</th>}
-                  <th className="p-3 text-center font-medium">Priority</th>
-                  <th className="p-3 text-center font-medium">Status</th>
+                  <th className="p-3 text-left font-medium">{t("transfers.sku")}</th>
+                  <th className="p-3 text-left font-medium">{t("transfers.product")}</th>
+                  <th className="p-3 text-left font-medium">{t("transfers.destination")}</th>
+                  <th className="p-3 text-right font-medium">{t("transfers.whStock")}</th>
+                  <th className="p-3 text-right font-medium">{t("transfers.destStock")}</th>
+                  <th className="p-3 text-right font-medium">{t("transfers.avgDay")}</th>
+                  <th className="p-3 text-center font-medium">{t("transfers.cover")}</th>
+                  <th className="p-3 text-right font-medium">{t("transfers.transferQty")}</th>
+                  {useAiPriority && <th className="p-3 text-right font-medium">{t("transfers.aiQty")}</th>}
+                  <th className="p-3 text-center font-medium">{t("transfers.priority")}</th>
+                  <th className="p-3 text-center font-medium">{t("transfers.status")}</th>
                 </tr>
               </thead>
               <tbody>
-                {displayTransfers.map((t) => (
+                {displayTransfers.map((tr) => (
                   <tr
-                    key={t.id}
+                    key={tr.id}
                     className="border-b hover:bg-muted/30 cursor-pointer transition-colors"
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest('input[type="checkbox"]')) return;
-                      setDrawerTransfer(t);
+                      setDrawerTransfer(tr);
                     }}
                   >
                     <td className="p-3" onClick={(e) => e.stopPropagation()}>
                       <Checkbox
-                        checked={selectedIds.has(t.id)}
-                        onCheckedChange={() => toggleSelect(t.id)}
-                        aria-label={`Select ${t.sku}`}
+                        checked={selectedIds.has(tr.id)}
+                        onCheckedChange={() => toggleSelect(tr.id)}
+                        aria-label={`Select ${tr.sku}`}
                       />
                     </td>
-                    <td className="p-3 font-medium">{t.sku || "-"}</td>
+                    <td className="p-3 font-medium">{tr.sku || "-"}</td>
                     <td className="p-3 text-muted-foreground truncate max-w-[200px]">
-                      {t.productTitle}{t.title && t.title !== "Default Title" ? ` / ${t.title}` : ""}
+                      {tr.productTitle}{tr.title && tr.title !== "Default Title" ? ` / ${tr.title}` : ""}
                     </td>
-                    <td className="p-3">{t.destinationName}</td>
-                    <td className="p-3 text-right tabular-nums">{t.warehouseOnHand}</td>
-                    <td className="p-3 text-right tabular-nums">{t.destOnHand}</td>
-                    <td className="p-3 text-right tabular-nums">{t.avgDailySales30?.toFixed(1)}</td>
+                    <td className="p-3">{tr.destinationName}</td>
+                    <td className="p-3 text-right tabular-nums">{tr.warehouseOnHand}</td>
+                    <td className="p-3 text-right tabular-nums">{tr.destOnHand}</td>
+                    <td className="p-3 text-right tabular-nums">{tr.avgDailySales30?.toFixed(1)}</td>
                     <td className="p-3 text-center">
-                      <StatusChip variant={t.daysOfCover < 5 ? "critical" : t.daysOfCover < 15 ? "warning" : "success"}>
-                        {t.daysOfCover?.toFixed(0)}d
+                      <StatusChip variant={tr.daysOfCover < 5 ? "critical" : tr.daysOfCover < 15 ? "warning" : "success"}>
+                        {tr.daysOfCover?.toFixed(0)}d
                       </StatusChip>
                     </td>
                     <td className="p-3 text-right">
-                      <span className="font-bold text-primary tabular-nums">{t.transferQty}</span>
+                      <span className="font-bold text-primary tabular-nums">{tr.transferQty}</span>
                     </td>
                     {useAiPriority && (
                       <td className="p-3 text-right tabular-nums">
-                        {getAiQty(t.sku) !== null ? (
-                          <span className="font-medium text-purple-700">{getAiQty(t.sku)}</span>
+                        {getAiQty(tr.sku) !== null ? (
+                          <span className="font-medium text-purple-700">{getAiQty(tr.sku)}</span>
                         ) : "-"}
                       </td>
                     )}
-                    <td className="p-3 text-center">{getPriorityChip(t.daysOfCover, t.stockoutRisk)}</td>
-                    <td className="p-3 text-center">{getStatusChip(t.status)}</td>
+                    <td className="p-3 text-center">{getPriorityChip(tr.daysOfCover, tr.stockoutRisk)}</td>
+                    <td className="p-3 text-center">{getStatusChip(tr.status)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -322,30 +324,30 @@ function TransfersContent() {
                 {/* Transfer Details */}
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Transfer Details</CardTitle>
+                    <CardTitle className="text-sm">{t("transfers.transferDetails")}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Destination</span>
+                      <span className="text-muted-foreground">{t("transfers.destination")}</span>
                       <span className="font-medium">{drawerTransfer.destinationName}</span>
                     </div>
                     <Separator />
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Recommended Qty</span>
+                      <span className="text-muted-foreground">{t("transfers.recommendedQty")}</span>
                       <span className="font-bold text-primary text-lg">{drawerTransfer.transferQty}</span>
                     </div>
                     {useAiPriority && getAiQty(drawerTransfer.sku) !== null && (
                       <>
                         <Separator />
                         <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">AI Suggested Qty</span>
+                          <span className="text-muted-foreground">{t("transfers.aiSuggestedQty")}</span>
                           <span className="font-medium text-purple-700">{getAiQty(drawerTransfer.sku)}</span>
                         </div>
                       </>
                     )}
                     <Separator />
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Target On-Hand</span>
+                      <span className="text-muted-foreground">{t("transfers.targetOnHand")}</span>
                       <span>{drawerTransfer.targetOnHand}</span>
                     </div>
                   </CardContent>
@@ -354,26 +356,26 @@ function TransfersContent() {
                 {/* Inventory Metrics */}
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Inventory Metrics</CardTitle>
+                    <CardTitle className="text-sm">{t("transfers.inventoryMetrics")}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Warehouse On-Hand</span>
+                      <span className="text-muted-foreground">{t("transfers.warehouseOnHand")}</span>
                       <span className="font-medium">{drawerTransfer.warehouseOnHand}</span>
                     </div>
                     <Separator />
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Destination On-Hand</span>
+                      <span className="text-muted-foreground">{t("transfers.destinationOnHand")}</span>
                       <span className="font-medium">{drawerTransfer.destOnHand}</span>
                     </div>
                     <Separator />
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Avg Daily Sales (30d)</span>
+                      <span className="text-muted-foreground">{t("transfers.avgDailySales30")}</span>
                       <span>{drawerTransfer.avgDailySales30?.toFixed(2)}</span>
                     </div>
                     <Separator />
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Days of Cover</span>
+                      <span className="text-muted-foreground">{t("transfers.daysOfCover")}</span>
                       <StatusChip variant={drawerTransfer.daysOfCover < 5 ? "critical" : drawerTransfer.daysOfCover < 15 ? "warning" : "success"}>
                         {drawerTransfer.daysOfCover?.toFixed(1)}d
                       </StatusChip>
@@ -382,7 +384,7 @@ function TransfersContent() {
                       <>
                         <Separator />
                         <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Capital Tied</span>
+                          <span className="text-muted-foreground">{t("transfers.capitalTied")}</span>
                           <span>${drawerTransfer.capitalTied?.toFixed(2)}</span>
                         </div>
                       </>
@@ -398,10 +400,10 @@ function TransfersContent() {
                     onClick={() => {
                       setSelectedIds((prev) => new Set(prev).add(drawerTransfer.id));
                       setDrawerTransfer(null);
-                      toast.info("Added to selection");
+                      toast.info(t("transfers.addedToSelection"));
                     }}
                   >
-                    Add to Plan
+                    {t("transfers.addToPlan")}
                   </Button>
                   <Button
                     size="sm"
@@ -412,7 +414,7 @@ function TransfersContent() {
                       setDrawerTransfer(null);
                     }}
                   >
-                    Mark Received
+                    {t("transfers.markReceived")}
                   </Button>
                 </div>
               </div>

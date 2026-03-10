@@ -24,6 +24,7 @@ import {
   Zap, Shield, FileText,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useI18n } from "@/lib/i18n";
 
 interface OpenAiSettingsState {
   isEnabled: boolean; model: string; dailyHourLocal: number; timezone: string;
@@ -38,19 +39,20 @@ interface WizardState {
 
 type ResetMode = "SOFT" | "HARD" | null;
 
-const fieldLabels: Record<string, { label: string; desc: string }> = {
-  leadTimeDays: { label: "Lead Time", desc: "Days for warehouse to store delivery" },
-  safetyDays: { label: "Safety Stock", desc: "Extra buffer days to prevent stockouts" },
-  reviewCycleDays: { label: "Review Cycle", desc: "Days between replenishment reviews" },
-  overstockThresholdDays: { label: "Overstock Threshold", desc: "Days of cover to flag as overstock" },
-  deadStockDays: { label: "Dead Stock", desc: "Days without sale to flag as dead stock" },
-  warehouseBufferQty: { label: "Warehouse Buffer", desc: "Minimum qty to keep in warehouse" },
-  targetCoverDays: { label: "Target Cover", desc: "Target days of cover at destinations" },
+const fieldKeys: Record<string, { labelKey: string; descKey: string }> = {
+  leadTimeDays: { labelKey: "settings.leadTime", descKey: "settings.leadTimeDesc" },
+  safetyDays: { labelKey: "settings.safetyStock", descKey: "settings.safetyStockDesc" },
+  reviewCycleDays: { labelKey: "settings.reviewCycle", descKey: "settings.reviewCycleDesc" },
+  overstockThresholdDays: { labelKey: "settings.overstockThreshold", descKey: "settings.overstockThresholdDesc" },
+  deadStockDays: { labelKey: "settings.deadStockLabel", descKey: "settings.deadStockDesc" },
+  warehouseBufferQty: { labelKey: "settings.warehouseBuffer", descKey: "settings.warehouseBufferDesc" },
+  targetCoverDays: { labelKey: "settings.targetCover", descKey: "settings.targetCoverDesc" },
 };
 
 function SettingsContent() {
   const router = useRouter();
   const { user } = useAppShell();
+  const { t } = useI18n();
   const [rules, setRules] = useState({
     leadTimeDays: 3, safetyDays: 2, reviewCycleDays: 7,
     overstockThresholdDays: 90, deadStockDays: 180,
@@ -119,29 +121,29 @@ function SettingsContent() {
       const data = await res.json();
       if (data.success) {
         setOriginalRules(rules);
-        toast.success("Thresholds saved");
+        toast.success(t("settings.thresholdsSaved"));
       } else {
-        toast.error(data.error || "Failed to save");
+        toast.error(data.error || t("settings.failedToSave"));
       }
     } catch {
-      toast.error("Failed to save");
+      toast.error(t("settings.failedToSave"));
     } finally {
       setSaving(false);
     }
   };
 
   const handleRunAnalytics = async () => {
-    toast.info("Running analytics...");
+    toast.info(t("settings.runningAnalytics"));
     try {
       const res = await fetch("/api/analytics/run", { method: "POST" });
       const data = await res.json();
       if (data.success) {
-        toast.success(`Analytics complete: ${data.transferCount} transfers, ${data.discountCount} discounts`);
+        toast.success(`${t("settings.analyticsComplete")}: ${data.transferCount} transfers, ${data.discountCount} discounts`);
       } else {
         toast.error(data.error);
       }
     } catch {
-      toast.error("Analytics run failed");
+      toast.error(t("settings.analyticsRunFailed"));
     }
   };
 
@@ -163,12 +165,12 @@ function SettingsContent() {
       if (data.success) {
         setAiSettings(data.settings);
         setApiKeyInput("");
-        toast.success("OpenAI settings saved");
+        toast.success(t("settings.openaiSettingsSaved"));
       } else {
         toast.error(data.error || data.details?.join(", "));
       }
     } catch {
-      toast.error("Failed to save");
+      toast.error(t("settings.failedToSave"));
     } finally {
       setAiSaving(false);
     }
@@ -185,10 +187,10 @@ function SettingsContent() {
       const data = await res.json();
       if (data.success) {
         setAiSettings(data.settings);
-        toast.success("Stored API key removed");
+        toast.success(t("settings.storedApiKeyRemoved"));
       }
     } catch {
-      toast.error("Failed to remove key");
+      toast.error(t("settings.failedToRemoveKey"));
     } finally {
       setAiSaving(false);
     }
@@ -202,7 +204,7 @@ function SettingsContent() {
       if (data.success) toast.success(data.message);
       else toast.error(data.message);
     } catch {
-      toast.error("Connection test failed");
+      toast.error(t("settings.connectionTestFailed"));
     } finally {
       setTesting(false);
     }
@@ -210,14 +212,14 @@ function SettingsContent() {
 
   const handleRunAiNow = async () => {
     setRunningAi(true);
-    toast.info("Running AI analysis...");
+    toast.info(t("settings.runningAiAnalysis"));
     try {
       const res = await fetch("/api/admin/openai-run", { method: "POST" });
       const data = await res.json();
-      if (data.success) toast.success(`AI analysis: ${data.run.status}`);
+      if (data.success) toast.success(`${t("settings.aiAnalysis")}: ${data.run.status}`);
       else toast.error(data.error);
     } catch {
-      toast.error("AI run failed");
+      toast.error(t("settings.aiRunFailed"));
     } finally {
       setRunningAi(false);
     }
@@ -236,15 +238,15 @@ function SettingsContent() {
       });
       const data = await res.json();
       if (data.ok) {
-        toast.success(resetMode === "SOFT" ? "Wizard reset" : "Data deleted. Redirecting...");
+        toast.success(resetMode === "SOFT" ? t("settings.wizardReset") : t("settings.dataDeletedRedirecting"));
         setResetMode(null);
         setConfirmText("");
         setTimeout(() => router.push("/wizard"), 1500);
       } else {
-        toast.error(data.error || "Reset failed");
+        toast.error(data.error || t("settings.resetFailed"));
       }
     } catch {
-      toast.error("Request failed");
+      toast.error(t("settings.requestFailed"));
     } finally {
       setResetSubmitting(false);
     }
@@ -254,17 +256,17 @@ function SettingsContent() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <PageHeader title="Settings" subtitle="Configure replenishment thresholds and integrations" />
+      <PageHeader title={t("settings.title")} subtitle={t("settings.subtitle")} />
 
       {/* Global Thresholds */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Settings className="h-4 w-4" />
-            Replenishment Thresholds
+            {t("settings.thresholds")}
           </CardTitle>
           <CardDescription>
-            Global parameters for inventory analysis. SKU-specific overrides can be set separately.
+            {t("settings.thresholdsDesc")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -272,7 +274,7 @@ function SettingsContent() {
             {Object.entries(rules).map(([key, val]) => (
               <div key={key} className="space-y-1.5">
                 <Label htmlFor={key} className="text-sm">
-                  {fieldLabels[key]?.label || key}
+                  {t(fieldKeys[key]?.labelKey || key)}
                 </Label>
                 <Input
                   id={key}
@@ -282,7 +284,7 @@ function SettingsContent() {
                   disabled={!isAdmin}
                   className="h-9"
                 />
-                <p className="text-xs text-muted-foreground">{fieldLabels[key]?.desc}</p>
+                <p className="text-xs text-muted-foreground">{t(fieldKeys[key]?.descKey || key)}</p>
               </div>
             ))}
           </div>
@@ -290,9 +292,9 @@ function SettingsContent() {
             <div className="flex items-center gap-3 pt-2">
               <Button onClick={handleSave} disabled={saving || !rulesChanged} size="sm">
                 {saving ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
-                Save Thresholds
+                {t("settings.saveThresholds")}
               </Button>
-              {!rulesChanged && <span className="text-xs text-muted-foreground">No changes</span>}
+              {!rulesChanged && <span className="text-xs text-muted-foreground">{t("settings.noChanges")}</span>}
             </div>
           )}
         </CardContent>
@@ -303,21 +305,21 @@ function SettingsContent() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Zap className="h-4 w-4" />
-            Actions
+            {t("settings.actions")}
           </CardTitle>
-          <CardDescription>Run analytics or export/import configuration.</CardDescription>
+          <CardDescription>{t("settings.actionsDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" onClick={handleRunAnalytics}>
-              <Play className="h-3.5 w-3.5 mr-1" /> Run Analytics
+              <Play className="h-3.5 w-3.5 mr-1" /> {t("settings.runAnalytics")}
             </Button>
             <Button size="sm" variant="outline" onClick={() => window.open("/api/settings/export", "_blank")}>
-              <Download className="h-3.5 w-3.5 mr-1" /> Export Config
+              <Download className="h-3.5 w-3.5 mr-1" /> {t("settings.exportConfig")}
             </Button>
             <Button size="sm" variant="outline" asChild>
               <label className="cursor-pointer">
-                <Upload className="h-3.5 w-3.5 mr-1" /> Import Config
+                <Upload className="h-3.5 w-3.5 mr-1" /> {t("settings.importConfig")}
                 <input
                   type="file"
                   accept=".json"
@@ -334,9 +336,9 @@ function SettingsContent() {
                         body: JSON.stringify(config),
                       });
                       const data = await res.json();
-                      toast.success(data.message || "Imported");
+                      toast.success(data.message || t("settings.imported"));
                     } catch {
-                      toast.error("Invalid JSON file");
+                      toast.error(t("settings.invalidJsonFile"));
                     }
                     e.target.value = "";
                   }}
@@ -353,9 +355,9 @@ function SettingsContent() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Brain className="h-4 w-4" />
-              OpenAI Configuration
+              {t("settings.openaiConfig")}
             </CardTitle>
-            <CardDescription>Configure AI-powered daily inventory insights.</CardDescription>
+            <CardDescription>{t("settings.openaiConfigDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Enable toggle */}
@@ -365,12 +367,12 @@ function SettingsContent() {
                 checked={aiSettings.isEnabled}
                 onCheckedChange={(v) => setAiSettings({ ...aiSettings, isEnabled: v === true })}
               />
-              <Label htmlFor="aiEnabled" className="cursor-pointer">Enable OpenAI Daily Insights</Label>
+              <Label htmlFor="aiEnabled" className="cursor-pointer">{t("settings.enableOpenai")}</Label>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Model</Label>
+                <Label>{t("ai.model")}</Label>
                 <Select value={aiSettings.model} onValueChange={(v) => setAiSettings({ ...aiSettings, model: v })}>
                   <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -382,7 +384,7 @@ function SettingsContent() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Daily Run Hour (0-23)</Label>
+                <Label>{t("settings.dailyRunHour")}</Label>
                 <Input
                   type="number" min={0} max={23}
                   value={aiSettings.dailyHourLocal}
@@ -391,7 +393,7 @@ function SettingsContent() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Timezone</Label>
+                <Label>{t("settings.timezone")}</Label>
                 <Input
                   value={aiSettings.timezone}
                   onChange={(e) => setAiSettings({ ...aiSettings, timezone: e.target.value })}
@@ -400,7 +402,7 @@ function SettingsContent() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Max SKUs per Run</Label>
+                <Label>{t("settings.maxSkus")}</Label>
                 <Input
                   type="number" min={1} max={1000}
                   value={aiSettings.maxSkus}
@@ -415,7 +417,7 @@ function SettingsContent() {
             {/* API Key Management */}
             <div className="space-y-3">
               <h3 className="text-sm font-semibold flex items-center gap-1.5">
-                <Shield className="h-3.5 w-3.5" /> API Key Management
+                <Shield className="h-3.5 w-3.5" /> {t("settings.apiKeyMgmt")}
               </h3>
               <RadioGroup
                 value={aiSettings.keyStorageMode}
@@ -425,18 +427,18 @@ function SettingsContent() {
                 <div className="flex items-center gap-2">
                   <RadioGroupItem value="ENV_ONLY" id="envOnly" />
                   <Label htmlFor="envOnly" className="cursor-pointer text-sm">
-                    Environment Variable
+                    {t("settings.envVariable")}
                     {envKeyConfigured ? (
-                      <Badge variant="outline" className="ml-2 text-xs text-emerald-600">Configured</Badge>
+                      <Badge variant="outline" className="ml-2 text-xs text-emerald-600">{t("settings.configured")}</Badge>
                     ) : (
-                      <Badge variant="outline" className="ml-2 text-xs text-amber-600">Not set</Badge>
+                      <Badge variant="outline" className="ml-2 text-xs text-amber-600">{t("settings.notSet")}</Badge>
                     )}
                   </Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <RadioGroupItem value="DB_ENCRYPTED" id="dbEncrypted" disabled={!encryptionAvailable} />
                   <Label htmlFor="dbEncrypted" className={`cursor-pointer text-sm ${!encryptionAvailable ? "text-muted-foreground" : ""}`}>
-                    Store encrypted in app
+                    {t("settings.storeEncrypted")}
                     {!encryptionAvailable && <span className="text-xs ml-1">(set APP_ENCRYPTION_KEY)</span>}
                   </Label>
                 </div>
@@ -469,15 +471,15 @@ function SettingsContent() {
             <div className="flex flex-wrap gap-2 pt-2">
               <Button size="sm" onClick={handleAiSave} disabled={aiSaving}>
                 {aiSaving ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
-                Save OpenAI Settings
+                {t("settings.saveOpenai")}
               </Button>
               <Button size="sm" variant="outline" onClick={handleTestConnection} disabled={testing}>
                 {testing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Zap className="h-3.5 w-3.5 mr-1" />}
-                Test Connection
+                {t("settings.testConnection")}
               </Button>
               <Button size="sm" variant="outline" onClick={handleRunAiNow} disabled={runningAi}>
                 {runningAi ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1" />}
-                Run AI Now
+                {t("settings.runAiNow")}
               </Button>
             </div>
           </CardContent>

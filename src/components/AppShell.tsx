@@ -4,6 +4,7 @@ import { useState, useEffect, createContext, useContext, useCallback } from "rea
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 import {
   LayoutDashboard,
   ArrowRightLeft,
@@ -18,6 +19,7 @@ import {
   Menu,
   Package,
   BookOpen,
+  Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,14 +59,14 @@ export function useAppShell() {
   return ctx;
 }
 
-const navItems = [
-  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-  { href: "/transfers", label: "Transfers", icon: ArrowRightLeft },
-  { href: "/discounts", label: "Discounts", icon: Tag },
-  { href: "/cogs", label: "COGS", icon: DollarSign },
-  { href: "/ai-insights", label: "AI Insights", icon: Brain },
-  { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/docs", label: "Docs", icon: BookOpen },
+const navKeys = [
+  { href: "/dashboard", tKey: "nav.overview", icon: LayoutDashboard },
+  { href: "/transfers", tKey: "nav.transfers", icon: ArrowRightLeft },
+  { href: "/discounts", tKey: "nav.discounts", icon: Tag },
+  { href: "/cogs", tKey: "nav.cogs", icon: DollarSign },
+  { href: "/ai-insights", tKey: "nav.aiInsights", icon: Brain },
+  { href: "/settings", tKey: "nav.settings", icon: Settings },
+  { href: "/docs", tKey: "nav.docs", icon: BookOpen },
 ];
 
 function SidebarContent({
@@ -75,6 +77,7 @@ function SidebarContent({
   onToggle: () => void;
 }) {
   const pathname = usePathname();
+  const { t, locale, setLocale } = useI18n();
 
   return (
     <div className="flex flex-col h-full">
@@ -96,7 +99,7 @@ function SidebarContent({
             size="icon"
             className="ml-auto h-7 w-7"
             onClick={onToggle}
-            aria-label="Collapse sidebar"
+            aria-label={t("nav.collapseSidebar")}
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -106,8 +109,9 @@ function SidebarContent({
       {/* Nav Items */}
       <ScrollArea className="flex-1 px-2 py-2">
         <nav className="space-y-1">
-          {navItems.map((item) => {
+          {navKeys.map((item) => {
             const isActive = pathname === item.href;
+            const label = t(item.tKey);
             return (
               <Link
                 key={item.href}
@@ -119,15 +123,29 @@ function SidebarContent({
                     : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                   collapsed && "justify-center px-2"
                 )}
-                title={collapsed ? item.label : undefined}
+                title={collapsed ? label : undefined}
               >
                 <item.icon className="h-4 w-4 shrink-0" />
-                {!collapsed && <span>{item.label}</span>}
+                {!collapsed && <span>{label}</span>}
               </Link>
             );
           })}
         </nav>
       </ScrollArea>
+
+      {/* Language Toggle */}
+      <div className={cn("px-2 py-2 border-t", collapsed && "flex justify-center")}>
+        <Button
+          variant="ghost"
+          size={collapsed ? "icon" : "sm"}
+          className={cn("h-8 text-xs gap-1.5", !collapsed && "w-full justify-start")}
+          onClick={() => setLocale(locale === "en" ? "es" : "en")}
+          title={locale === "en" ? "Cambiar a Español" : "Switch to English"}
+        >
+          <Globe className="h-3.5 w-3.5 shrink-0" />
+          {!collapsed && (locale === "en" ? "ES Español" : "EN English")}
+        </Button>
+      </div>
 
       {/* Expand button when collapsed */}
       {collapsed && (
@@ -137,7 +155,7 @@ function SidebarContent({
             size="icon"
             className="w-full h-8"
             onClick={onToggle}
-            aria-label="Expand sidebar"
+            aria-label={t("nav.expandSidebar")}
           >
             <Menu className="h-4 w-4" />
           </Button>
@@ -150,13 +168,14 @@ function SidebarContent({
 function TopBar({ user, tenant }: { user: AuthUser; tenant: AuthTenant }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { t } = useI18n();
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
   };
 
-  const currentPage = navItems.find((i) => i.href === pathname);
+  const currentPage = navKeys.find((i) => i.href === pathname);
 
   return (
     <header className="sticky top-0 z-30 flex items-center h-14 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 lg:px-6">
@@ -164,7 +183,7 @@ function TopBar({ user, tenant }: { user: AuthUser; tenant: AuthTenant }) {
         <div className="flex items-center gap-2">
           {currentPage && (
             <h1 className="text-lg font-semibold truncate">
-              {currentPage.label}
+              {t(currentPage.tKey)}
             </h1>
           )}
         </div>
@@ -194,7 +213,7 @@ function TopBar({ user, tenant }: { user: AuthUser; tenant: AuthTenant }) {
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
               <LogOut className="h-4 w-4 mr-2" />
-              Sign out
+              {t("nav.signOut")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
