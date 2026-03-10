@@ -48,6 +48,8 @@ export default function WizardPage() {
   const [error, setError] = useState("");
 
   // Step 1
+  const [shopDomain, setShopDomain] = useState("");
+  const [accessToken, setAccessToken] = useState("");
   const [shopName, setShopName] = useState("");
 
   // Step 2
@@ -78,6 +80,7 @@ export default function WizardPage() {
       .then((data) => {
         if (data.wizardComplete) router.push("/dashboard");
         else if (data.wizardStep > 0) setStep(data.wizardStep + 1);
+        if (data.shopDomain) setShopDomain(data.shopDomain);
       })
       .catch(() => router.push("/login"));
   }, [router]);
@@ -94,11 +97,13 @@ export default function WizardPage() {
 
   const handleStep1 = async () => {
     setLoading(true); setError("");
+    if (!shopDomain.trim()) { setError("Shop domain is required"); setLoading(false); return; }
+    if (!accessToken.trim()) { setError("Access token is required"); setLoading(false); return; }
     try {
       const res = await fetch("/api/wizard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ step: 1 }),
+        body: JSON.stringify({ step: 1, data: { shopDomain: shopDomain.trim(), accessToken: accessToken.trim() } }),
       });
       const data = await res.json();
       if (data.error) setError(data.error);
@@ -221,8 +226,35 @@ export default function WizardPage() {
             {step === 1 && (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  We&apos;ll validate your Shopify connection using the <code className="bg-muted px-1.5 py-0.5 rounded text-xs">SHOPIFY_SHOP</code> and <code className="bg-muted px-1.5 py-0.5 rounded text-xs">SHOPIFY_ACCESS_TOKEN</code> environment variables.
+                  Enter your Shopify store domain and Admin API access token to connect.
                 </p>
+                <div className="space-y-1.5">
+                  <Label htmlFor="shop-domain">Shop Domain *</Label>
+                  <Input
+                    id="shop-domain"
+                    placeholder="my-store.myshopify.com"
+                    value={shopDomain}
+                    onChange={(e) => setShopDomain(e.target.value)}
+                    className="h-9"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Your Shopify store URL, e.g. <code className="bg-muted px-1 py-0.5 rounded">my-store.myshopify.com</code>
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="access-token">Admin API Access Token *</Label>
+                  <Input
+                    id="access-token"
+                    type="password"
+                    placeholder="shpat_xxxxxxxxxxxxxxxx"
+                    value={accessToken}
+                    onChange={(e) => setAccessToken(e.target.value)}
+                    className="h-9 font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    From Shopify Admin → Settings → Apps → Develop apps. Requires scopes: <code className="bg-muted px-1 py-0.5 rounded">read_products</code>, <code className="bg-muted px-1 py-0.5 rounded">read_inventory</code>, <code className="bg-muted px-1 py-0.5 rounded">read_orders</code>, <code className="bg-muted px-1 py-0.5 rounded">read_locations</code>, <code className="bg-muted px-1 py-0.5 rounded">write_products</code>.
+                  </p>
+                </div>
                 {shopName && (
                   <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 p-3 rounded-lg">
                     <Check className="h-4 w-4" />
@@ -427,7 +459,7 @@ export default function WizardPage() {
               </div>
               <div>
                 {step === 1 && (
-                  <Button onClick={handleStep1} disabled={loading}>
+                  <Button onClick={handleStep1} disabled={loading || !shopDomain.trim() || !accessToken.trim()}>
                     {loading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Wifi className="h-4 w-4 mr-1" />}
                     Test Connection
                   </Button>

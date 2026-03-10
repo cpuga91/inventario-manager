@@ -12,6 +12,7 @@ export async function GET() {
     return NextResponse.json({
       wizardStep: tenant.wizardStep,
       wizardComplete: tenant.wizardComplete,
+      shopDomain: tenant.shopDomain || "",
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Error";
@@ -33,12 +34,35 @@ export async function POST(req: NextRequest) {
 
     switch (step) {
       case 1: {
-        // Test Shopify connection
-        const client = getShopifyClient(tenant.shopDomain, tenant.accessToken);
+        // Validate and save Shopify credentials, then test connection
+        const { shopDomain, accessToken } = data || {};
+        if (!shopDomain || typeof shopDomain !== "string" || !shopDomain.trim()) {
+          return NextResponse.json({ error: "Shop domain is required" }, { status: 400 });
+        }
+        if (!accessToken || typeof accessToken !== "string" || !accessToken.trim()) {
+          return NextResponse.json({ error: "Access token is required" }, { status: 400 });
+        }
+
+        // Normalize domain (ensure .myshopify.com suffix)
+        let domain = shopDomain.trim().toLowerCase();
+        domain = domain.replace(/^https?:\/\//, "").replace(/\/$/, "");
+        if (!domain.includes(".myshopify.com")) {
+          domain = domain.replace(/\.myshopify\.com$/, "") + ".myshopify.com";
+        }
+
+        // Test connection with the provided credentials
+        const client = getShopifyClient(domain, accessToken.trim());
         const shop = await client.testConnection();
+
+        // Save credentials to tenant
         await prisma.tenant.update({
           where: { id: tenant.id },
-          data: { wizardStep: Math.max(tenant.wizardStep, 1) },
+          data: {
+            shopDomain: domain,
+            accessToken: accessToken.trim(),
+            name: shop.name,
+            wizardStep: Math.max(tenant.wizardStep, 1),
+          },
         });
         return NextResponse.json({ success: true, shopName: shop.name });
       }
