@@ -1,6 +1,7 @@
 /**
  * Data sync service: backfill + incremental from Shopify.
  * All operations are idempotent (upsert-based).
+ * Optimized with batch operations and progress reporting.
  */
 import { prisma } from "./prisma";
 import { ShopifyClient } from "./shopify";
@@ -18,13 +19,21 @@ export interface SyncStats {
   orderLines: number;
 }
 
+export type ProgressCallback = (phase: string, detail: string, progress?: number) => void;
+
 export class SyncService {
   private client: ShopifyClient;
   private tenantId: string;
+  private onProgress?: ProgressCallback;
 
-  constructor(client: ShopifyClient, tenantId: string) {
+  constructor(client: ShopifyClient, tenantId: string, onProgress?: ProgressCallback) {
     this.client = client;
     this.tenantId = tenantId;
+    this.onProgress = onProgress;
+  }
+
+  private report(phase: string, detail: string, progress?: number) {
+    if (this.onProgress) this.onProgress(phase, detail, progress);
   }
 
   /**
@@ -35,14 +44,17 @@ export class SyncService {
     const stats: SyncStats = { products: 0, variants: 0, inventoryLevels: 0, orders: 0, orderLines: 0 };
 
     // 1. Sync variants (includes products and COGS metafield)
+    this.report("variants", "Syncing products and variants from Shopify...");
     const variantStats = await this.syncVariants();
     stats.products = variantStats.products;
     stats.variants = variantStats.variants;
 
     // 2. Sync inventory levels
+    this.report("inventory", "Syncing inventory levels...");
     stats.inventoryLevels = await this.syncInventoryLevels();
 
     // 3. Sync orders
+    this.report("orders", "Syncing orders...");
     const since = new Date();
     since.setMonth(since.getMonth() - months);
     const sinceStr = since.toISOString().split("T")[0];
@@ -84,77 +96,78 @@ export class SyncService {
   private async syncVariants(): Promise<{ products: number; variants: number }> {
     const seenProducts = new Set<string>();
     let variantCount = 0;
-
-    // Get tenant locations for mapping
-    const tenantLocations = await prisma.tenantLocation.findMany({
-      where: { tenantId: this.tenantId },
-    });
-    const _locationMap = new Map(tenantLocations.map((l) => [l.shopifyLocationId, l.id]));
+    let pageNum = 0;
 
     for await (const batch of this.client.paginateVariants()) {
-      for (const v of batch) {
-        const productGid = gidToId(v.product.id);
-        const variantGid = gidToId(v.id);
+      pageNum++;
+      // Batch all DB operations for this page in a single transaction
+      await prisma.$transaction(async (tx) => {
+        for (const v of batch) {
+          const productGid = gidToId(v.product.id);
+          const variantGid = gidToId(v.id);
 
-        // Upsert product
-        if (!seenProducts.has(productGid)) {
-          await prisma.product.upsert({
-            where: { tenantId_shopifyProductId: { tenantId: this.tenantId, shopifyProductId: productGid } },
+          // Upsert product
+          if (!seenProducts.has(productGid)) {
+            await tx.product.upsert({
+              where: { tenantId_shopifyProductId: { tenantId: this.tenantId, shopifyProductId: productGid } },
+              update: {
+                title: v.product.title,
+                vendor: v.product.vendor,
+                tags: v.product.tags.join(","),
+              },
+              create: {
+                tenantId: this.tenantId,
+                shopifyProductId: productGid,
+                title: v.product.title,
+                vendor: v.product.vendor,
+                tags: v.product.tags.join(","),
+              },
+            });
+            seenProducts.add(productGid);
+          }
+
+          // Upsert variant
+          const variant = await tx.variant.upsert({
+            where: { tenantId_shopifyVariantId: { tenantId: this.tenantId, shopifyVariantId: variantGid } },
             update: {
-              title: v.product.title,
-              vendor: v.product.vendor,
-              tags: v.product.tags.join(","),
+              sku: v.sku,
+              title: v.title,
+              price: parseFloat(v.price) || 0,
+              shopifyInventoryItemId: gidToId(v.inventoryItem.id),
             },
             create: {
               tenantId: this.tenantId,
+              shopifyVariantId: variantGid,
               shopifyProductId: productGid,
-              title: v.product.title,
-              vendor: v.product.vendor,
-              tags: v.product.tags.join(","),
+              sku: v.sku,
+              title: v.title,
+              price: parseFloat(v.price) || 0,
+              shopifyInventoryItemId: gidToId(v.inventoryItem.id),
             },
           });
-          seenProducts.add(productGid);
-        }
+          variantCount++;
 
-        // Upsert variant
-        const variant = await prisma.variant.upsert({
-          where: { tenantId_shopifyVariantId: { tenantId: this.tenantId, shopifyVariantId: variantGid } },
-          update: {
-            sku: v.sku,
-            title: v.title,
-            price: parseFloat(v.price) || 0,
-            shopifyInventoryItemId: gidToId(v.inventoryItem.id),
-          },
-          create: {
-            tenantId: this.tenantId,
-            shopifyVariantId: variantGid,
-            shopifyProductId: productGid,
-            sku: v.sku,
-            title: v.title,
-            price: parseFloat(v.price) || 0,
-            shopifyInventoryItemId: gidToId(v.inventoryItem.id),
-          },
-        });
-        variantCount++;
-
-        // Upsert COGS from metafield
-        if (v.metafield?.value) {
-          const cogsVal = parseFloat(v.metafield.value);
-          if (!isNaN(cogsVal)) {
-            await prisma.variantCost.upsert({
-              where: { tenantId_variantId: { tenantId: this.tenantId, variantId: variant.id } },
-              update: { cogsValue: cogsVal, sku: v.sku, source: "metafield" },
-              create: {
-                tenantId: this.tenantId,
-                variantId: variant.id,
-                sku: v.sku,
-                cogsValue: cogsVal,
-                source: "metafield",
-              },
-            });
+          // Upsert COGS from metafield
+          if (v.metafield?.value) {
+            const cogsVal = parseFloat(v.metafield.value);
+            if (!isNaN(cogsVal)) {
+              await tx.variantCost.upsert({
+                where: { tenantId_variantId: { tenantId: this.tenantId, variantId: variant.id } },
+                update: { cogsValue: cogsVal, sku: v.sku, source: "metafield" },
+                create: {
+                  tenantId: this.tenantId,
+                  variantId: variant.id,
+                  sku: v.sku,
+                  cogsValue: cogsVal,
+                  source: "metafield",
+                },
+              });
+            }
           }
         }
-      }
+      });
+
+      this.report("variants", `Synced ${variantCount} variants (page ${pageNum})...`, variantCount);
     }
 
     return { products: seenProducts.size, variants: variantCount };
@@ -166,41 +179,52 @@ export class SyncService {
     });
     const locationMap = new Map(tenantLocations.map((l) => [l.shopifyLocationId, l.id]));
 
+    // Pre-load all variants into a map to avoid N+1 lookups
+    const allVariants = await prisma.variant.findMany({
+      where: { tenantId: this.tenantId },
+      select: { id: true, shopifyVariantId: true },
+    });
+    const variantMap = new Map(allVariants.map((v) => [v.shopifyVariantId, v.id]));
+
     let count = 0;
+    let pageNum = 0;
 
     for await (const batch of this.client.paginateInventoryLevels()) {
-      for (const item of batch) {
-        if (!item.variantId) continue;
+      pageNum++;
+      // Batch all DB operations for this page in a single transaction
+      await prisma.$transaction(async (tx) => {
+        for (const item of batch) {
+          if (!item.variantId) continue;
 
-        // Find our variant
-        const variant = await prisma.variant.findUnique({
-          where: { tenantId_shopifyVariantId: { tenantId: this.tenantId, shopifyVariantId: item.variantId } },
-        });
-        if (!variant) continue;
+          const variantId = variantMap.get(item.variantId);
+          if (!variantId) continue;
 
-        for (const level of item.levels) {
-          const tenantLocationId = locationMap.get(level.locationId);
-          if (!tenantLocationId) continue;
+          for (const level of item.levels) {
+            const tenantLocationId = locationMap.get(level.locationId);
+            if (!tenantLocationId) continue;
 
-          await prisma.inventoryLevel.upsert({
-            where: {
-              tenantId_variantId_tenantLocationId: {
-                tenantId: this.tenantId,
-                variantId: variant.id,
-                tenantLocationId,
+            await tx.inventoryLevel.upsert({
+              where: {
+                tenantId_variantId_tenantLocationId: {
+                  tenantId: this.tenantId,
+                  variantId,
+                  tenantLocationId,
+                },
               },
-            },
-            update: { onHand: level.available },
-            create: {
-              tenantId: this.tenantId,
-              variantId: variant.id,
-              tenantLocationId,
-              onHand: level.available,
-            },
-          });
-          count++;
+              update: { onHand: level.available },
+              create: {
+                tenantId: this.tenantId,
+                variantId,
+                tenantLocationId,
+                onHand: level.available,
+              },
+            });
+            count++;
+          }
         }
-      }
+      });
+
+      this.report("inventory", `Synced ${count} inventory levels (page ${pageNum})...`, count);
     }
 
     return count;
@@ -209,62 +233,74 @@ export class SyncService {
   private async syncOrders(since: string): Promise<{ orders: number; orderLines: number }> {
     let orderCount = 0;
     let lineCount = 0;
+    let pageNum = 0;
+
+    // Pre-load variant map to avoid N+1 lookups
+    const allVariants = await prisma.variant.findMany({
+      where: { tenantId: this.tenantId },
+      select: { id: true, shopifyVariantId: true },
+    });
+    const variantMap = new Map(allVariants.map((v) => [v.shopifyVariantId, v.id]));
 
     for await (const batch of this.client.paginateOrders(since)) {
-      for (const o of batch) {
-        const orderGid = gidToId(o.id);
+      pageNum++;
 
-        const order = await prisma.order.upsert({
-          where: { tenantId_shopifyOrderId: { tenantId: this.tenantId, shopifyOrderId: orderGid } },
-          update: {
-            totalPrice: parseFloat(o.totalPrice) || 0,
-            shopifyLocationId: o.locationId,
-          },
-          create: {
-            tenantId: this.tenantId,
-            shopifyOrderId: orderGid,
-            orderName: o.name,
-            createdAt: new Date(o.createdAt),
-            totalPrice: parseFloat(o.totalPrice) || 0,
-            channel: o.locationId ? "pos" : "online",
-            shopifyLocationId: o.locationId,
-          },
-        });
-        orderCount++;
+      // Batch all DB operations for this page in a single transaction
+      await prisma.$transaction(async (tx) => {
+        for (const o of batch) {
+          const orderGid = gidToId(o.id);
 
-        // Delete existing lines for idempotency, then re-create
-        await prisma.orderLine.deleteMany({ where: { orderId: order.id } });
-
-        for (const li of o.lineItems) {
-          let variantId: string | null = null;
-          if (li.variantId) {
-            const variant = await prisma.variant.findUnique({
-              where: { tenantId_shopifyVariantId: { tenantId: this.tenantId, shopifyVariantId: li.variantId } },
-            });
-            variantId = variant?.id || null;
-          }
-
-          await prisma.orderLine.create({
-            data: {
-              orderId: order.id,
-              variantId,
-              sku: li.sku,
-              quantity: li.quantity,
-              unitPrice: parseFloat(li.unitPrice) || 0,
+          const order = await tx.order.upsert({
+            where: { tenantId_shopifyOrderId: { tenantId: this.tenantId, shopifyOrderId: orderGid } },
+            update: {
+              totalPrice: parseFloat(o.totalPrice) || 0,
+              shopifyLocationId: o.locationId,
+            },
+            create: {
+              tenantId: this.tenantId,
+              shopifyOrderId: orderGid,
+              orderName: o.name,
+              createdAt: new Date(o.createdAt),
+              totalPrice: parseFloat(o.totalPrice) || 0,
+              channel: o.locationId ? "pos" : "online",
+              shopifyLocationId: o.locationId,
             },
           });
-          lineCount++;
+          orderCount++;
+
+          // Delete existing lines for idempotency, then re-create
+          await tx.orderLine.deleteMany({ where: { orderId: order.id } });
+
+          for (const li of o.lineItems) {
+            const variantId = li.variantId ? (variantMap.get(li.variantId) || null) : null;
+
+            await tx.orderLine.create({
+              data: {
+                orderId: order.id,
+                variantId,
+                sku: li.sku,
+                quantity: li.quantity,
+                unitPrice: parseFloat(li.unitPrice) || 0,
+              },
+            });
+            lineCount++;
+          }
         }
-      }
+      });
+
+      this.report("orders", `Synced ${orderCount} orders, ${lineCount} lines (page ${pageNum})...`, orderCount);
     }
 
     return { orders: orderCount, orderLines: lineCount };
   }
 
   /**
-   * Aggregate orders into daily_sales table. Idempotent via upsert.
+   * Aggregate orders into daily_sales table.
+   * Optimized: compute all aggregates in memory first, then batch upsert.
    */
   async aggregateDailySales(): Promise<number> {
+    this.report("aggregation", "Aggregating daily sales...");
+
     const tenantLocations = await prisma.tenantLocation.findMany({
       where: { tenantId: this.tenantId },
     });
@@ -277,56 +313,13 @@ export class SyncService {
       include: { lines: true },
     });
 
-    let count = 0;
+    // Compute aggregates in memory
+    const aggregates = new Map<string, { date: Date; variantId: string; tenantLocationId: string; qty: number; gross: number }>();
 
     for (const order of orders) {
       const dateStr = order.createdAt.toISOString().split("T")[0];
       const date = new Date(dateStr);
 
-      // Determine tenant location
-      let tenantLocationId: string | null = null;
-      if (order.shopifyLocationId) {
-        tenantLocationId = shopifyLocMap.get(order.shopifyLocationId) || null;
-      }
-      if (!tenantLocationId && onlineLocation) {
-        tenantLocationId = onlineLocation.id;
-      }
-      if (!tenantLocationId) continue;
-
-      for (const line of order.lines) {
-        if (!line.variantId) continue;
-
-        await prisma.dailySale.upsert({
-          where: {
-            tenantId_date_variantId_tenantLocationId: {
-              tenantId: this.tenantId,
-              date,
-              variantId: line.variantId,
-              tenantLocationId,
-            },
-          },
-          update: {
-            qty: { increment: 0 }, // no-op on upsert update; we recalculate below
-          },
-          create: {
-            tenantId: this.tenantId,
-            date,
-            variantId: line.variantId,
-            tenantLocationId,
-            qty: 0,
-            grossSales: 0,
-            netSales: 0,
-          },
-        });
-      }
-    }
-
-    // Now recalculate aggregates from order lines
-    // Group by date + variant + location
-    const aggregates = new Map<string, { qty: number; gross: number }>();
-
-    for (const order of orders) {
-      const dateStr = order.createdAt.toISOString().split("T")[0];
       let tenantLocationId: string | null = null;
       if (order.shopifyLocationId) {
         tenantLocationId = shopifyLocMap.get(order.shopifyLocationId) || null;
@@ -339,42 +332,51 @@ export class SyncService {
       for (const line of order.lines) {
         if (!line.variantId) continue;
         const key = `${dateStr}|${line.variantId}|${tenantLocationId}`;
-        const cur = aggregates.get(key) || { qty: 0, gross: 0 };
+        const cur = aggregates.get(key) || { date, variantId: line.variantId, tenantLocationId, qty: 0, gross: 0 };
         cur.qty += line.quantity;
         cur.gross += line.quantity * line.unitPrice;
         aggregates.set(key, cur);
       }
     }
 
-    for (const [key, val] of aggregates) {
-      const [dateStr, variantId, tenantLocationId] = key.split("|");
-      const date = new Date(dateStr);
+    // Batch upsert in chunks of 50 within transactions
+    const entries = Array.from(aggregates.values());
+    const chunkSize = 50;
+    let count = 0;
 
-      await prisma.dailySale.upsert({
-        where: {
-          tenantId_date_variantId_tenantLocationId: {
-            tenantId: this.tenantId,
-            date,
-            variantId,
-            tenantLocationId,
-          },
-        },
-        update: {
-          qty: val.qty,
-          grossSales: val.gross,
-          netSales: val.gross,
-        },
-        create: {
-          tenantId: this.tenantId,
-          date,
-          variantId,
-          tenantLocationId,
-          qty: val.qty,
-          grossSales: val.gross,
-          netSales: val.gross,
-        },
+    for (let i = 0; i < entries.length; i += chunkSize) {
+      const chunk = entries.slice(i, i + chunkSize);
+      await prisma.$transaction(async (tx) => {
+        for (const val of chunk) {
+          await tx.dailySale.upsert({
+            where: {
+              tenantId_date_variantId_tenantLocationId: {
+                tenantId: this.tenantId,
+                date: val.date,
+                variantId: val.variantId,
+                tenantLocationId: val.tenantLocationId,
+              },
+            },
+            update: {
+              qty: val.qty,
+              grossSales: val.gross,
+              netSales: val.gross,
+            },
+            create: {
+              tenantId: this.tenantId,
+              date: val.date,
+              variantId: val.variantId,
+              tenantLocationId: val.tenantLocationId,
+              qty: val.qty,
+              grossSales: val.gross,
+              netSales: val.gross,
+            },
+          });
+          count++;
+        }
       });
-      count++;
+
+      this.report("aggregation", `Aggregated ${count} of ${entries.length} daily sales records...`, Math.round((count / entries.length) * 100));
     }
 
     return count;

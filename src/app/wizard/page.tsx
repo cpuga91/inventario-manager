@@ -72,6 +72,8 @@ export default function WizardPage() {
     sync: { products: number; variants: number; orders: number; inventoryLevels: number };
     analytics: { transferCount: number; discountCount: number };
   }>(null);
+  const [backfillPhase, setBackfillPhase] = useState("");
+  const [backfillDetail, setBackfillDetail] = useState("");
 
   // Resume wizard
   useEffect(() => {
@@ -143,13 +145,52 @@ export default function WizardPage() {
   };
 
   const handleStep4 = async () => {
-    setLoading(true); setError("");
+    setLoading(true); setError(""); setBackfillPhase(""); setBackfillDetail("");
     try {
       const res = await fetch("/api/sync/backfill", { method: "POST" });
-      const data = await res.json();
-      if (data.error) setError(data.error);
-      else setBackfillStatus(data);
-    } catch { setError("Backfill failed"); }
+
+      // Check if response is SSE stream
+      if (res.headers.get("Content-Type")?.includes("text/event-stream") && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n\n");
+          buffer = lines.pop() || "";
+
+          for (const chunk of lines) {
+            const dataLine = chunk.trim().replace(/^data: /, "");
+            if (!dataLine) continue;
+            try {
+              const msg = JSON.parse(dataLine);
+              if (msg.type === "phase") {
+                setBackfillPhase(msg.phase);
+                setBackfillDetail(msg.message);
+              } else if (msg.type === "progress") {
+                setBackfillDetail(msg.detail);
+              } else if (msg.type === "complete") {
+                setBackfillStatus({
+                  sync: msg.sync,
+                  analytics: msg.analytics,
+                });
+              } else if (msg.type === "error") {
+                setError(msg.error);
+              }
+            } catch { /* ignore parse errors */ }
+          }
+        }
+      } else {
+        // Fallback for non-streaming response
+        const data = await res.json();
+        if (data.error) setError(data.error);
+        else setBackfillStatus(data);
+      }
+    } catch { setError("Backfill failed. Please try again."); }
     finally { setLoading(false); }
   };
 
@@ -413,11 +454,42 @@ export default function WizardPage() {
                       This will import your last 12 months of Shopify data and run the first analytics computation.
                     </p>
                     {loading && (
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-center gap-2 text-sm text-primary">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Running backfill + analytics... This may take several minutes.
+                      <div className="space-y-4">
+                        {/* Phase progress steps */}
+                        <div className="space-y-2 text-left">
+                          {[
+                            { key: "variants", label: "Syncing products & variants" },
+                            { key: "inventory", label: "Syncing inventory levels" },
+                            { key: "orders", label: "Syncing orders" },
+                            { key: "aggregation", label: "Aggregating daily sales" },
+                            { key: "analytics", label: "Running analytics engine" },
+                            { key: "alerts", label: "Generating alerts" },
+                          ].map((p) => {
+                            const phases = ["variants", "inventory", "orders", "aggregation", "analytics", "alerts"];
+                            const currentIdx = phases.indexOf(backfillPhase);
+                            const thisIdx = phases.indexOf(p.key);
+                            const isDone = thisIdx < currentIdx;
+                            const isActive = p.key === backfillPhase;
+                            return (
+                              <div key={p.key} className={`flex items-center gap-2 text-sm rounded-lg px-3 py-1.5 ${
+                                isActive ? "bg-primary/10 text-primary font-medium" :
+                                isDone ? "text-emerald-600" : "text-muted-foreground"
+                              }`}>
+                                {isDone ? (
+                                  <Check className="h-4 w-4 text-emerald-600 shrink-0" />
+                                ) : isActive ? (
+                                  <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                                ) : (
+                                  <div className="h-4 w-4 rounded-full border border-muted-foreground/30 shrink-0" />
+                                )}
+                                {p.label}
+                              </div>
+                            );
+                          })}
                         </div>
+                        {backfillDetail && (
+                          <p className="text-xs text-muted-foreground text-center">{backfillDetail}</p>
+                        )}
                         <Progress value={undefined} className="h-1" />
                       </div>
                     )}
