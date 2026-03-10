@@ -46,15 +46,13 @@ export async function POST(req: NextRequest) {
     const tenantId = user.tenantId;
 
     if (mode === "SOFT") {
-      await prisma.$transaction(async (tx) => {
-        await tx.tenant.update({
-          where: { id: tenantId },
-          data: { wizardStep: 0, wizardComplete: false },
-        });
-
-        await tx.syncCursor.deleteMany({ where: { tenantId } });
-
-        await tx.auditLog.create({
+      await prisma.tenant.update({
+        where: { id: tenantId },
+        data: { wizardStep: 0, wizardComplete: false },
+      });
+      await prisma.syncCursor.deleteMany({ where: { tenantId } });
+      try {
+        await prisma.auditLog.create({
           data: {
             tenantId,
             actorUserId: user.id,
@@ -64,96 +62,69 @@ export async function POST(req: NextRequest) {
             }),
           },
         });
-      });
+      } catch (e) {
+        console.error("[wizard-reset] Audit log failed:", e);
+      }
 
       return NextResponse.json({ ok: true, mode: "SOFT" });
     }
 
-    // HARD reset — delete in FK-safe order, no interactive transaction to avoid timeout
+    // HARD reset — delete all tenant data in FK-safe order using raw SQL for reliability
+    console.log("[wizard-reset] Starting HARD reset for tenant:", tenantId);
+
     const counts: Record<string, number> = {};
 
-    // Phase 1: delete leaf tables (no FK dependents)
-    const aiRuns = await prisma.aiRun.deleteMany({ where: { tenantId } });
-    counts.aiRuns = aiRuns.count;
+    // Use raw SQL to delete in bulk — more reliable than Prisma deleteMany chain
+    // which can hit issues with connection pooling or model resolution
+    counts.aiRuns = await prisma.$executeRaw`DELETE FROM ai_runs WHERE tenant_id = ${tenantId}`;
+    counts.notifications = await prisma.$executeRaw`DELETE FROM notifications WHERE tenant_id = ${tenantId}`;
+    counts.recommendations = await prisma.$executeRaw`DELETE FROM recommendations WHERE tenant_id = ${tenantId}`;
+    counts.alerts = await prisma.$executeRaw`DELETE FROM alerts WHERE tenant_id = ${tenantId}`;
+    counts.dailySales = await prisma.$executeRaw`DELETE FROM daily_sales WHERE tenant_id = ${tenantId}`;
 
-    const notifications = await prisma.notification.deleteMany({ where: { tenantId } });
-    counts.notifications = notifications.count;
+    // Order lines via subquery (no tenant_id column)
+    counts.orderLines = await prisma.$executeRaw`
+      DELETE FROM order_lines WHERE order_id IN (
+        SELECT id FROM orders WHERE tenant_id = ${tenantId}
+      )`;
+    counts.orders = await prisma.$executeRaw`DELETE FROM orders WHERE tenant_id = ${tenantId}`;
 
-    const recommendations = await prisma.recommendation.deleteMany({ where: { tenantId } });
-    counts.recommendations = recommendations.count;
+    counts.inventoryLevels = await prisma.$executeRaw`DELETE FROM inventory_levels WHERE tenant_id = ${tenantId}`;
+    counts.variantCosts = await prisma.$executeRaw`DELETE FROM variant_costs WHERE tenant_id = ${tenantId}`;
+    counts.variants = await prisma.$executeRaw`DELETE FROM variants WHERE tenant_id = ${tenantId}`;
+    counts.products = await prisma.$executeRaw`DELETE FROM products WHERE tenant_id = ${tenantId}`;
+    counts.syncCursors = await prisma.$executeRaw`DELETE FROM sync_cursors WHERE tenant_id = ${tenantId}`;
+    counts.locations = await prisma.$executeRaw`DELETE FROM tenant_locations WHERE tenant_id = ${tenantId}`;
+    counts.rules = await prisma.$executeRaw`DELETE FROM replenishment_rules WHERE tenant_id = ${tenantId}`;
+    counts.openAiSettings = await prisma.$executeRaw`DELETE FROM openai_settings WHERE tenant_id = ${tenantId}`;
 
-    const alerts = await prisma.alert.deleteMany({ where: { tenantId } });
-    counts.alerts = alerts.count;
+    // Reset wizard state
+    await prisma.$executeRaw`
+      UPDATE tenants SET wizard_step = 0, wizard_complete = false WHERE id = ${tenantId}`;
 
-    const dailySales = await prisma.dailySale.deleteMany({ where: { tenantId } });
-    counts.dailySales = dailySales.count;
-
-    // Phase 2: orders (must delete lines first)
-    const orders = await prisma.order.findMany({
-      where: { tenantId },
-      select: { id: true },
-    });
-    const orderIds = orders.map((o) => o.id);
-    if (orderIds.length > 0) {
-      const orderLines = await prisma.orderLine.deleteMany({
-        where: { orderId: { in: orderIds } },
+    // Audit log (non-blocking)
+    try {
+      await prisma.auditLog.create({
+        data: {
+          tenantId,
+          actorUserId: user.id,
+          action: "WIZARD_HARD_RESET",
+          detailsJson: JSON.stringify({
+            message: "Full tenant data purge and wizard reset.",
+            deletedCounts: counts,
+          }),
+        },
       });
-      counts.orderLines = orderLines.count;
-    } else {
-      counts.orderLines = 0;
+    } catch (auditErr) {
+      console.error("[wizard-reset] Audit log failed (non-blocking):", auditErr);
     }
-    const ordersDeleted = await prisma.order.deleteMany({ where: { tenantId } });
-    counts.orders = ordersDeleted.count;
 
-    // Phase 3: inventory and variants
-    const inventoryLevels = await prisma.inventoryLevel.deleteMany({ where: { tenantId } });
-    counts.inventoryLevels = inventoryLevels.count;
-
-    const variantCosts = await prisma.variantCost.deleteMany({ where: { tenantId } });
-    counts.variantCosts = variantCosts.count;
-
-    const variants = await prisma.variant.deleteMany({ where: { tenantId } });
-    counts.variants = variants.count;
-
-    const products = await prisma.product.deleteMany({ where: { tenantId } });
-    counts.products = products.count;
-
-    // Phase 4: config and locations
-    const syncCursors = await prisma.syncCursor.deleteMany({ where: { tenantId } });
-    counts.syncCursors = syncCursors.count;
-
-    const locations = await prisma.tenantLocation.deleteMany({ where: { tenantId } });
-    counts.locations = locations.count;
-
-    const rules = await prisma.replenishmentRule.deleteMany({ where: { tenantId } });
-    counts.rules = rules.count;
-
-    const openAi = await prisma.openAiSettings.deleteMany({ where: { tenantId } });
-    counts.openAiSettings = openAi.count;
-
-    // Phase 5: reset wizard state and log
-    await prisma.tenant.update({
-      where: { id: tenantId },
-      data: { wizardStep: 0, wizardComplete: false },
-    });
-
-    await prisma.auditLog.create({
-      data: {
-        tenantId,
-        actorUserId: user.id,
-        action: "WIZARD_HARD_RESET",
-        detailsJson: JSON.stringify({
-          message: "Full tenant data purge and wizard reset.",
-          deletedCounts: counts,
-        }),
-      },
-    });
-
-    const deletedCounts = counts;
-
-    return NextResponse.json({ ok: true, mode: "HARD", deletedCounts });
+    console.log("[wizard-reset] HARD reset complete:", counts);
+    return NextResponse.json({ ok: true, mode: "HARD", deletedCounts: counts });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Error";
+    const stack = err instanceof Error ? err.stack : "";
+    console.error("[wizard-reset] Error:", msg, "\n", stack);
     const status = msg === "Unauthorized" || msg === "Forbidden" ? 403 : 500;
     return NextResponse.json({ error: msg }, { status });
   }
